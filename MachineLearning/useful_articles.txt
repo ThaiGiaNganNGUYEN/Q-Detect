@@ -1,0 +1,4 @@
+https://medium.com/@anirudhsekar2008/quantum-accelerated-graph-neural-networks-a-hybrid-approach-using-pennylane-and-pytorch-geometric-1cdaa7b08168
+
+https://graphsandnetworks.com/the-cora-dataset/
+
