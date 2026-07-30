@@ -1,5 +1,6 @@
-class Account:
-    """A base class for bank accpounts"""
+from sqlmodel import Field, SQLModel
 
-    def __init__(self, accountId: str):
-        self.accountId = accountId
+##Imports sqlmodel to create table from python object
+class Account(SQLModel, table=True):
+    """A base class for bank accpounts"""
+    accountId : str = Field(primary_key=True)

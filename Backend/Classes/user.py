@@ -1,7 +1,7 @@
-class User:
-    """Base class for each user of application. Stores username and password"""
+from sqlmodel import Field, SQLModel
 
-    def __init__(self, userID : str, username :str, password: str):
-        self.userId = userID
-        self.username = username
-        self.password = password
+class User(SQLModel, Table = True):
+    """Base class for each user of application. Stores username and password"""
+    userId: str = Field(primary_key=True)
+    username: str = Field(index= True)
+    password: str = Field(index= True )
