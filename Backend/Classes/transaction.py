@@ -5,5 +5,5 @@ class Transaction(SQLModel, table= True):
         transactionId : str = Field(primary_key=True)
         senderAcc : str =Field(foreign_key="account.accountId")
         receiverAcc : str =Field(foreign_key="account.accountId")
-        amount : int = Field(index = True)
+        amount : float = Field(index = True)
         transactionType : str = Field(index = True)
