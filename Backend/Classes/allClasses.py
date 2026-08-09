@@ -15,12 +15,13 @@ class Graph(SQLModel, table =True):
                                 # Do otherwise if not true case
     marker : str | None = Field(default=None, foreign_key="account.accountId")
     markedTime : datetime | None 
-class Transaction(SQLModel, tabl= True):
+class Transaction(SQLModel, table= True):
         """A class for transactions, used in cache, backend filtering, quantum and frontend"""
         transactionId : str = Field(primary_key=True)
         senderAcc : str =Field(foreign_key="account.accountId")
         receiverAcc : str =Field(foreign_key="account.accountId")
-        amount : int = Field(index = True)
+        amount : float = Field(index = True)
+
 class User(SQLModel, table = True):
     """Base class for each user of application. Stores username and password"""
     userId: str = Field(primary_key=True)
