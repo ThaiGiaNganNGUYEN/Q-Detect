@@ -14,7 +14,7 @@ export default function Register() {
 
 				<h1
 					className="whitespace-nowrap text-[64px] leading-none text-black"
-					style={{ fontFamily: '"Wallpoet", sans-serif' }}
+					style={{ fontFamily: '"Inter", sans-serif' }}
 				>
 					Q-Detect
 				</h1>

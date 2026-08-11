@@ -14,13 +14,19 @@ export default function LogIn() {
 
 				<h1
 					className="whitespace-nowrap text-[64px] leading-none text-black"
-					style={{ fontFamily: '"Wallpoet", sans-serif' }}
+					style={{ fontFamily: '"Inter", sans-serif' }}
 				>
 					Q-Detect
 				</h1>
 
 				<section className="w-full rounded-[12px] border border-[#E3E3E3] bg-white px-3 py-3">
-					<form className="flex flex-col gap-3" onSubmit={(event) => event.preventDefault()}>
+					<form
+						className="flex flex-col gap-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							window.location.hash = "#dashboard";
+						}}
+					>
 						<label className="sr-only" htmlFor="email">
 							Email Address
 						</label>
