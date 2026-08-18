@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import qDetectLogo from "../assets/qdetect-logo.png";
+import Settings from "./settings";
 
 const GRAPHS = [
 	{ id: "A", name: "Graph A", risk: 89, status: "Status" },
@@ -110,6 +111,7 @@ function resolveTheme(theme) {
 export default function Home() {
 	const [selectedGraphId, setSelectedGraphId] = useState("A");
 	const [navMenuOpen, setNavMenuOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [theme, setTheme] = useState(getPreferredTheme);
 	const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 	const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(getPreferredTheme()));
@@ -204,7 +206,10 @@ export default function Home() {
 									<button
 										type="button"
 										className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => setNavMenuOpen(false)}
+										onClick={() => {
+											setNavMenuOpen(false);
+											setSettingsOpen(true);
+										}}
 									>
 										<GearIcon />
 										Settings
@@ -345,6 +350,8 @@ export default function Home() {
 					) : null}
 				</div>
 			</div>
+
+			<Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 		</div>
 	);
 }
