@@ -13,7 +13,11 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "ruff>=0.16.0",
     "sqlmodel>=0.0.39",
+    "ms-identity-python[flask]",
 ]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+ms-identity-python = { git = "https://github.com/azure-samples/ms-identity-python", rev = "0.9" }
