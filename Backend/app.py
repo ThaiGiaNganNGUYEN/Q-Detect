@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 import database_builder
+## App structure : User page (login credentials) -> 
+# /login ( 1. Checks authentication, then authorizes JWT) ->
+# Send JWT to user -> /dashboard ( 2. Checks JWT, then displays dashboard content)
+
 
 app = FastAPI()
 
