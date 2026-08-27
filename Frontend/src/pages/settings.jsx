@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { changePassword, logout, updateAccount } from "../api/auth";
+import { getErrorMessage, getStoredUser, isApiConfigured } from "../api/client";
 
 const SECTIONS = [
 	{ id: "account", label: "Account" },
@@ -7,6 +9,76 @@ const SECTIONS = [
 ];
 
 function AccountPanel() {
+	const storedUser = getStoredUser();
+	const [accountMessage, setAccountMessage] = useState("");
+	const [accountError, setAccountError] = useState("");
+	const [accountPending, setAccountPending] = useState(false);
+	const [passwordMessage, setPasswordMessage] = useState("");
+	const [passwordError, setPasswordError] = useState("");
+	const [passwordPending, setPasswordPending] = useState(false);
+
+	const onSaveAccount = async (event) => {
+		event.preventDefault();
+		setAccountMessage("");
+		setAccountError("");
+
+		const form = new FormData(event.currentTarget);
+		const username = String(form.get("username") ?? "").trim();
+		const email = String(form.get("email") ?? "").trim();
+		const displayName = String(form.get("displayName") ?? "").trim();
+
+		if (!isApiConfigured()) {
+			return;
+		}
+
+		setAccountPending(true);
+		try {
+			await updateAccount({ username, email, displayName });
+			setAccountMessage("Account details updated.");
+		} catch (err) {
+			setAccountError(getErrorMessage(err));
+		} finally {
+			setAccountPending(false);
+		}
+	};
+
+	const onChangePassword = async (event) => {
+		event.preventDefault();
+		setPasswordMessage("");
+		setPasswordError("");
+
+		const form = new FormData(event.currentTarget);
+		const currentPassword = String(form.get("currentPassword") ?? "");
+		const newPassword = String(form.get("newPassword") ?? "");
+		const confirmPassword = String(form.get("confirmPassword") ?? "");
+
+		if (newPassword !== confirmPassword) {
+			setPasswordError("New passwords do not match.");
+			return;
+		}
+
+		if (!newPassword) {
+			setPasswordError("Enter a new password.");
+			return;
+		}
+
+		if (!isApiConfigured()) {
+			return;
+		}
+
+		setPasswordPending(true);
+		const formEl = event.currentTarget;
+		try {
+			await changePassword({ currentPassword, newPassword });
+			setPasswordMessage("Password updated.");
+			formEl.reset();
+		} catch (err) {
+			setPasswordError(getErrorMessage(err));
+		} finally {
+			setPasswordPending(false);
+		}
+	};
+
 	return (
 		<div className="mx-auto w-full max-w-xl space-y-8">
 			<section>
@@ -16,14 +88,14 @@ function AccountPanel() {
 				</p>
 				<form
 					className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
-					onSubmit={(event) => event.preventDefault()}
+					onSubmit={onSaveAccount}
 				>
 					<label className="block text-left text-xs font-medium text-zinc-600 dark:text-zinc-300">
 						Username
 						<input
 							type="text"
 							name="username"
-							defaultValue="user"
+							defaultValue={storedUser?.username ?? "user"}
 							className="mt-1 h-9 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
 						/>
 					</label>
@@ -32,7 +104,7 @@ function AccountPanel() {
 						<input
 							type="email"
 							name="email"
-							defaultValue="abc123@example.com"
+							defaultValue={storedUser?.email ?? "abc123@example.com"}
 							className="mt-1 h-9 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
 						/>
 					</label>
@@ -41,15 +113,24 @@ function AccountPanel() {
 						<input
 							type="text"
 							name="displayName"
-							defaultValue="Test User"
+							defaultValue={storedUser?.displayName ?? "Test User"}
 							className="mt-1 h-9 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
 						/>
 					</label>
+					{accountError ? (
+						<p className="text-sm text-red-600 dark:text-red-400" role="alert">
+							{accountError}
+						</p>
+					) : null}
+					{accountMessage ? (
+						<p className="text-sm text-emerald-600 dark:text-emerald-400">{accountMessage}</p>
+					) : null}
 					<button
 						type="submit"
-						className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+						disabled={accountPending}
+						className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
 					>
-						Save changes
+						{accountPending ? "Saving…" : "Save changes"}
 					</button>
 				</form>
 			</section>
@@ -61,14 +142,14 @@ function AccountPanel() {
 				</p>
 				<form
 					className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
-					onSubmit={(event) => event.preventDefault()}
+					onSubmit={onChangePassword}
 				>
 					<label className="block text-left text-xs font-medium text-zinc-600 dark:text-zinc-300">
 						Current password
 						<input
 							type="password"
 							name="currentPassword"
-                            defaultValue="abc123"
+							defaultValue="abc123"
 							className="mt-1 h-9 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
 						/>
 					</label>
@@ -88,11 +169,20 @@ function AccountPanel() {
 							className="mt-1 h-9 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
 						/>
 					</label>
+					{passwordError ? (
+						<p className="text-sm text-red-600 dark:text-red-400" role="alert">
+							{passwordError}
+						</p>
+					) : null}
+					{passwordMessage ? (
+						<p className="text-sm text-emerald-600 dark:text-emerald-400">{passwordMessage}</p>
+					) : null}
 					<button
 						type="submit"
-						className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+						disabled={passwordPending}
+						className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
 					>
-						Update password
+						{passwordPending ? "Updating…" : "Update password"}
 					</button>
 				</form>
 			</section>
@@ -105,6 +195,7 @@ function AccountPanel() {
 				<a
 					href="#login"
 					className="inline-flex rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
+					onClick={() => logout()}
 				>
 					Log out
 				</a>

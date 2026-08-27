@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import qDetectLogo from "../assets/qdetect-logo.png";
 import MarkGraphStatus from "../components/MarkGraphStatus";
 import MuleNetworkGraph from "../components/MuleNetworkGraph";
+import { logout } from "../api/auth";
+import { isApiConfigured } from "../api/client";
+import { updateGraphStatus } from "../api/graphs";
 import { getMuleNetworkById, sampleMuleNetworks } from "../data/sampleMuleNetworks";
 import Settings from "./settings";
 
@@ -137,10 +140,24 @@ export default function Home() {
 	const isDark = resolvedTheme === "dark";
 
 	const markGraph = (status) => {
+		const graphId = selectedGraph.id;
+		const previous = graphStatuses[graphId] ?? "Pending";
+		const next = previous === status ? "Pending" : status;
 		setGraphStatuses((current) => ({
 			...current,
-			[selectedGraph.id]: current[selectedGraph.id] === status ? "Pending" : status,
+			[graphId]: next,
 		}));
+
+		if (!isApiConfigured()) {
+			return;
+		}
+
+		updateGraphStatus(graphId, next).catch(() => {
+			setGraphStatuses((current) => ({
+				...current,
+				[graphId]: previous,
+			}));
+		});
 	};
 
 	const sidebar = (
@@ -224,7 +241,10 @@ export default function Home() {
 									<a
 										href="#login"
 										className="flex w-full items-center gap-2 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => setNavMenuOpen(false)}
+										onClick={() => {
+											setNavMenuOpen(false);
+											logout();
+										}}
 									>
 										<DoorIcon />
 										Sign out
