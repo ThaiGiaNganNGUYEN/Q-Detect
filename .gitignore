@@ -1,3 +1,11 @@
 .venv/
 __pycache__/
 Frontend/.env
+Backend/.env
+Backend/dataset/
+Backend/output/
+instructions.txt
+pipeline.md
+production_pipeline.md
+requirements.txt
+todo.md
