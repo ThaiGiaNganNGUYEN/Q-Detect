@@ -1,35 +1,32 @@
 import { useEffect, useState } from "react";
 import qDetectLogo from "../assets/qdetect-logo.png";
+import MarkGraphStatus from "../components/MarkGraphStatus";
+import MuleNetworkGraph from "../components/MuleNetworkGraph";
+import { logout } from "../api/auth";
+import { isApiConfigured } from "../api/client";
+import { updateGraphStatus } from "../api/graphs";
+import { getMuleNetworkById, sampleMuleNetworks } from "../data/sampleMuleNetworks";
+import Settings from "./settings";
 
-const GRAPHS = [
-	{ id: "A", name: "Graph A", risk: 89, status: "Status" },
-	{ id: "B", name: "Graph B", risk: 95, status: "Status" },
-	{ id: "C", name: "Graph C", risk: 87, status: "Status" },
-	{ id: "D", name: "Graph D", risk: 96, status: "Status" },
-	{ id: "E", name: "Graph E", risk: 88, status: "Status" },
-	{ id: "F", name: "Graph F", risk: 97, status: "Status" },
-	{ id: "G", name: "Graph G", risk: 73, status: "Status" },
-	{ id: "H", name: "Graph H", risk: 89, status: "Status" },
-];
+function formatAmount(amount) {
+	return Number(amount).toLocaleString("en-US", {
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 2,
+	});
+}
 
-const SAMPLE_ROWS = [
-	["1,001", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,002", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,003", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,003", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,004", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,005", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,006", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,007", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,008", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,009", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,010", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,011", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,012", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,013", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,014", "placeholder", "placeholder", "placeholder", "placeholder"],
-	["1,015", "placeholder", "placeholder", "placeholder", "placeholder"],
-];
+function statusClass(status, selected) {
+	if (selected) {
+		return "";
+	}
+	if (status === "Safe") {
+		return "text-emerald-600 dark:text-emerald-400";
+	}
+	if (status === "Fraud") {
+		return "text-red-600 dark:text-red-400";
+	}
+	return "text-zinc-500 dark:text-zinc-400";
+}
 
 function HamburgerIcon({ className = "h-5 w-5" }) {
 	return (
@@ -108,8 +105,12 @@ function resolveTheme(theme) {
 }
 
 export default function Home() {
-	const [selectedGraphId, setSelectedGraphId] = useState("A");
+	const [selectedGraphId, setSelectedGraphId] = useState(() => sampleMuleNetworks[0]?.id ?? "0");
+	const [graphStatuses, setGraphStatuses] = useState(() =>
+		Object.fromEntries(sampleMuleNetworks.map((graph) => [graph.id, graph.status ?? "Pending"])),
+	);
 	const [navMenuOpen, setNavMenuOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [theme, setTheme] = useState(getPreferredTheme);
 	const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 	const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(getPreferredTheme()));
@@ -134,8 +135,30 @@ export default function Home() {
 		return () => media.removeEventListener("change", onChange);
 	}, [theme]);
 
-	const selectedGraph = GRAPHS.find((graph) => graph.id === selectedGraphId) ?? GRAPHS[0];
+	const selectedGraph = getMuleNetworkById(selectedGraphId);
+	const selectedStatus = graphStatuses[selectedGraph.id] ?? "Pending";
 	const isDark = resolvedTheme === "dark";
+
+	const markGraph = (status) => {
+		const graphId = selectedGraph.id;
+		const previous = graphStatuses[graphId] ?? "Pending";
+		const next = previous === status ? "Pending" : status;
+		setGraphStatuses((current) => ({
+			...current,
+			[graphId]: next,
+		}));
+
+		if (!isApiConfigured()) {
+			return;
+		}
+
+		updateGraphStatus(graphId, next).catch(() => {
+			setGraphStatuses((current) => ({
+				...current,
+				[graphId]: previous,
+			}));
+		});
+	};
 
 	const sidebar = (
 		<div className="flex h-full flex-col">
@@ -153,8 +176,9 @@ export default function Home() {
 						</tr>
 					</thead>
 					<tbody>
-						{GRAPHS.map((graph) => {
+						{sampleMuleNetworks.map((graph) => {
 							const selected = graph.id === selectedGraphId;
+							const status = graphStatuses[graph.id] ?? "Pending";
 							return (
 								<tr
 									key={graph.id}
@@ -167,7 +191,7 @@ export default function Home() {
 								>
 									<td className="px-2 py-2 font-medium">{graph.name}</td>
 									<td className="px-2 py-2">{graph.risk}%</td>
-									<td className="px-2 py-2">{graph.status}</td>
+									<td className={`px-2 py-2 ${statusClass(status, selected)}`}>{status}</td>
 								</tr>
 							);
 						})}
@@ -204,7 +228,10 @@ export default function Home() {
 									<button
 										type="button"
 										className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => setNavMenuOpen(false)}
+										onClick={() => {
+											setNavMenuOpen(false);
+											setSettingsOpen(true);
+										}}
 									>
 										<GearIcon />
 										Settings
@@ -214,7 +241,10 @@ export default function Home() {
 									<a
 										href="#login"
 										className="flex w-full items-center gap-2 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => setNavMenuOpen(false)}
+										onClick={() => {
+											setNavMenuOpen(false);
+											logout();
+										}}
 									>
 										<DoorIcon />
 										Sign out
@@ -242,61 +272,59 @@ export default function Home() {
 				<main className="min-w-0 flex-1 px-3 py-3 sm:w-2/3 lg:w-5/6">
 					<div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
 						<h1 className="text-2xl font-semibold">Selected: {selectedGraph.name}</h1>
-						<div className="flex flex-wrap items-center gap-2">
-							<div className="inline-flex overflow-hidden rounded border border-zinc-300 dark:border-zinc-700">
-								<button
-									type="button"
-									className="border-r border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-								>
-									Mark as Safe
-								</button>
-								<button
-									type="button"
-									className="px-2.5 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
-								>
-									Mark as Fraud
-								</button>
-							</div>
-							<button
-								type="button"
-								className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-							>
-								Risk Score
-							</button>
-						</div>
+						<MarkGraphStatus
+							status={selectedStatus}
+							onMarkSafe={() => markGraph("Safe")}
+							onMarkFraud={() => markGraph("Fraud")}
+						/>
 					</div>
 
-					<div className="my-4 flex h-[240px] w-full items-center justify-center rounded border border-zinc-300 bg-zinc-50 text-sm text-zinc-500 md:h-[380px] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-						Graph placeholder
-					</div>
+					<MuleNetworkGraph
+						key={selectedGraph.id}
+						graphId={selectedGraph.id}
+						graphName={selectedGraph.name}
+						nodes={selectedGraph.nodes}
+						links={selectedGraph.links}
+						risk={selectedGraph.risk}
+						isDark={isDark}
+						className="my-4"
+					/>
 
 					<h2 className="mb-2 text-xl font-semibold">Transaction Details</h2>
 					<div className="overflow-x-auto text-sm">
-						<table className="w-full min-w-[640px] border-collapse">
+						<table className="w-full min-w-[720px] border-collapse">
 							<thead>
 								<tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
-									<th className="px-2 py-1.5 font-semibold">Transaction Reference</th>
-									<th className="px-2 py-1.5 font-semibold">From</th>
-									<th className="px-2 py-1.5 font-semibold">To</th>
+									<th className="px-2 py-1.5 font-semibold">Transaction ID</th>
+									<th className="px-2 py-1.5 font-semibold">Timestamp</th>
+									<th className="px-2 py-1.5 font-semibold">Sender</th>
+									<th className="px-2 py-1.5 font-semibold">Receiver</th>
 									<th className="px-2 py-1.5 font-semibold">Amount</th>
-									<th className="px-2 py-1.5 font-semibold">Type</th>
+									<th className="px-2 py-1.5 font-semibold">Transaction Format</th>
 								</tr>
 							</thead>
 							<tbody>
-								{SAMPLE_ROWS.map((row, index) => (
+								{selectedGraph.transactions.map((tx, index) => (
 									<tr
-										key={`${row[0]}-${index}`}
+										key={tx.id}
 										className={
 											index % 2 === 0
 												? "bg-zinc-50 dark:bg-zinc-900/60"
 												: "bg-white dark:bg-zinc-950"
 										}
 									>
-										{row.map((cell, cellIndex) => (
-											<td key={cellIndex} className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-												{cell}
-											</td>
-										))}
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.id}</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 whitespace-nowrap dark:border-zinc-800">
+											{tx.timestamp}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.fromLabel}</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.toLabel}</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatAmount(tx.amount)}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{tx.payment_format}
+										</td>
 									</tr>
 								))}
 							</tbody>
@@ -345,6 +373,8 @@ export default function Home() {
 					) : null}
 				</div>
 			</div>
+
+			<Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 		</div>
 	);
 }

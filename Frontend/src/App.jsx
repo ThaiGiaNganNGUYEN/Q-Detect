@@ -21,7 +21,7 @@ export default function App() {
 		return <Register />;
 	}
 
-	if (view === "#home" || view === "#dashboard") {
+	if (view === "#home" || view === "#dashboard" || view === "#settings") {
 		return <Home />;
 	}
 
