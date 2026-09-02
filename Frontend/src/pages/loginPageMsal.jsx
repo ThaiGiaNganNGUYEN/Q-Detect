@@ -21,50 +21,12 @@ export default function LogPageMsal() {
   }, [instance, isAuthenticated]);
 
   const handleLogin = () => {
-  setLoginError(null);
-  console.log("LOGIN CLICKED");
-
-  // ---- MSAL DIAGNOSTICS ----------------------------------------
-  const authConfig = instance.getConfiguration().auth;
-
-  // JSON.stringify exposes hidden chars (\r, quotes, trailing spaces)
-  console.log("AUTHORITY (raw):", JSON.stringify(authConfig.authority));
-  console.log("KNOWN AUTHORITIES:", JSON.stringify(authConfig.knownAuthorities));
-  console.log("CLIENT ID:", JSON.stringify(authConfig.clientId));
-  console.log("REDIRECT URI:", JSON.stringify(authConfig.redirectUri));
-
-  // The exact URL MSAL must fetch to resolve endpoints — try this in a browser tab
-  const base = authConfig.authority.endsWith("/")
-    ? authConfig.authority
-    : authConfig.authority + "/";
-  console.log("EXPECTED DISCOVERY URL:", `${base}v2.0/.well-known/openid-configuration`);
-
-  console.log("ENV VALUES:", {
-    clientId: JSON.stringify(import.meta.env.VITE_MSAL_CLIENT_ID),
-    tenantId: JSON.stringify(import.meta.env.VITE_MSAL_TENANT_ID),
-    redirectUri: JSON.stringify(import.meta.env.VITE_MSAL_REDIRECT_URI),
-  });
-  // ---------------------------------------------------------------
-
-  instance
-    .loginPopup(loginRequest)
-    .then((response) => {
-      console.log("LOGIN SUCCESS:", response.account?.username);
-      console.log("TOKEN AUTHORITY USED:", response.authority);
-      window.location.hash = "#dashboard";
-    })
-    .catch((error) => {
+    setLoginError(null);
+    instance.loginRedirect(loginRequest).catch((error) => {
       if (error.errorCode === "user_cancelled") return;
-
-      // Full error anatomy — errorMessage often truncates the useful part
-      console.log("LOGIN ERROR CODE:", error.errorCode);
-      console.log("LOGIN ERROR MESSAGE:", error.errorMessage);
-      console.log("LOGIN ERROR NAME:", error.name);           // ClientConfigurationError vs ClientAuthError vs ServerError
-      console.log("LOGIN ERROR SUBERROR:", error.subError);
-      console.log("LOGIN ERROR FULL:", error);                 // expand in console for stack + everything else
       setLoginError(error.errorMessage || "Sign-in failed. Try again.");
     });
-};
+  };
 
   return (
     <main className="min-h-screen bg-white px-4 py-10 text-center text-[#262626]">

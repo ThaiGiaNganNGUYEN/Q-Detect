@@ -11,7 +11,7 @@ export const msalConfig = {
         clientId: '48d78ab8-3688-40c5-b636-4d3e95d11bb3', // This is the ONLY mandatory field that you need to supply.
         authority: 'https://login.microsoftonline.com/6596b4ab-a9fb-4fc8-b1fa-a2ff3f467b32/',        // your subdomain
         // knownAuthorities: ["qdetectcustomers.ciamlogin.com"],   // Replace the placeholder with your tenant subdomain
-        redirectUri: '/', // You must register this URI on Microsoft Entra admin center/App Registration. Defaults to window.location.origin
+        redirectUri: 'http://localhost:5173/redirect', // You must register this URI on Microsoft Entra admin center/App Registration. Defaults to window.location.origin
         postLogoutRedirectUri: '/', // Indicates the page to navigate after logout.
         navigateToLoginRequestUrl: false,
     },
