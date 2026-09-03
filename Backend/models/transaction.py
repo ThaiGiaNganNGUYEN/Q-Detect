@@ -48,6 +48,10 @@ class Transaction(SQLModel, table=True):
     timestamp: datetime = Field(index=True)
     isNight: bool = Field(default=False)
     isWeekend: bool = Field(default=False)
+    hoursFromStart: float = Field(default=0.0)
+    isCrossBank: bool = Field(default=False)
+    isCrossCurrency: bool = Field(default=False)
+    isSelfTransfer: bool = Field(default=False)
     isLaundering: bool = Field(default=False, index=True)
 
     sender: Optional["Account"] = Relationship(
@@ -74,6 +78,10 @@ class Transaction(SQLModel, table=True):
             timestamp=staging.timestamp,
             isNight=bool(staging.isNight),
             isWeekend=bool(staging.isWeekend),
+            hoursFromStart=staging.hoursFromStart or 0.0,
+            isCrossBank=bool(staging.isCrossBank),
+            isCrossCurrency=bool(staging.isCrossCurrency),
+            isSelfTransfer=bool(staging.isSelfTransfer),
             isLaundering=staging.isLaundering,
         )
 
@@ -93,6 +101,10 @@ class Transaction(SQLModel, table=True):
             "timestamp": str(self.timestamp),
             "is_night": self.isNight,
             "is_weekend": self.isWeekend,
+            "hours_from_start": self.hoursFromStart,
+            "is_cross_bank": int(self.isCrossBank),
+            "is_cross_currency": int(self.isCrossCurrency),
+            "is_self_transfer": int(self.isSelfTransfer),
         }
 
 
@@ -108,6 +120,10 @@ class TransactionRead(SQLModel):
     timestamp: str
     isNight: bool
     isWeekend: bool
+    hoursFromStart: float
+    isCrossBank: bool
+    isCrossCurrency: bool
+    isSelfTransfer: bool
     sender: Account
     receiver: Account
 
@@ -125,6 +141,10 @@ class TransactionRead(SQLModel):
             timestamp=str(tx.timestamp),
             isNight=tx.isNight,
             isWeekend=tx.isWeekend,
+            hoursFromStart=tx.hoursFromStart,
+            isCrossBank=tx.isCrossBank,
+            isCrossCurrency=tx.isCrossCurrency,
+            isSelfTransfer=tx.isSelfTransfer,
             sender=sender,
             receiver=receiver,
         )

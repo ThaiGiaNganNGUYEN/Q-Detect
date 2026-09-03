@@ -24,14 +24,14 @@ class GraphEdge(SQLModel):
     id: str               # matches Transaction.transactionId
     source: str            # Account.accountId of the sender
     target: str             # Account.accountId of the receiver
-    amountPaid: float
-    amountReceived: float
-    currencyPaid: str
-    currencyReceived: str
+    amount: float
+    currency: str
     paymentFormat: str
     timestamp: str
-    isNight: bool
-    isWeekend: bool
+    hoursFromStart: float
+    isCrossBank: bool
+    isCrossCurrency: bool
+    isSelfTransfer: bool
 
 
 class GraphResponse(SQLModel):

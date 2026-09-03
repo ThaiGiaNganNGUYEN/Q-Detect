@@ -67,14 +67,14 @@ def compute_full_graph(cluster_node_ids: set | None = None) -> GraphResponse:
             id=str(i),
             source=G.nodes[src].get('account', src),
             target=G.nodes[dst].get('account', dst),
-            amountPaid=float(edge_data.get('amount_paid', 0.0)),
-            amountReceived=float(edge_data.get('amount_received', 0.0)),
-            currencyPaid=str(edge_data.get('currency_paid', '')),
-            currencyReceived=str(edge_data.get('currency_received', '')),
+            amount=float(edge_data.get('amount_paid', 0.0)),
+            currency=str(edge_data.get('currency_paid', '')),
             paymentFormat=str(edge_data.get('payment_format', '')),
             timestamp=str(edge_data.get('timestamp', '')),
-            isNight=bool(edge_data.get('is_night', False)),
-            isWeekend=bool(edge_data.get('is_weekend', False)),
+            hoursFromStart=float(edge_data.get('hours_from_start', 0.0)),
+            isCrossBank=bool(edge_data.get('is_cross_bank', False)),
+            isCrossCurrency=bool(edge_data.get('is_cross_currency', False)),
+            isSelfTransfer=bool(edge_data.get('is_self_transfer', False)),
         ))
 
     return GraphResponse(
@@ -130,6 +130,10 @@ def compute_clusters(min_size: int = 1) -> list[Cluster]:
                 timestamp=str(edge_data.get('timestamp', '')),
                 isNight=bool(edge_data.get('is_night', False)),
                 isWeekend=bool(edge_data.get('is_weekend', False)),
+                hoursFromStart=float(edge_data.get('hours_from_start', 0.0)),
+                isCrossBank=bool(edge_data.get('is_cross_bank', False)),
+                isCrossCurrency=bool(edge_data.get('is_cross_currency', False)),
+                isSelfTransfer=bool(edge_data.get('is_self_transfer', False)),
                 sender=sender,
                 receiver=receiver,
             ))

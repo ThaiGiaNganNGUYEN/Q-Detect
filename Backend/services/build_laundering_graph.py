@@ -20,6 +20,10 @@ import gc
 import pandas as pd
 import networkx as nx
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from models import Account, StagingTransaction, Transaction
 
 SEED = 42
@@ -123,11 +127,16 @@ for row in df.to_dict(orient="records"):
         "paymentFormat": row['Payment Format'],
         "isLaundering": bool(row['Is Laundering']),
         "timestamp": row['Timestamp'].to_pydatetime(),
-    }).with_derived_time_fields()
+    }).with_derived_time_fields().with_derived_relational_fields()
     staging_rows.append(staged)
 
 # Sort chronologically now that every row is a validated StagingTransaction
 staging_rows.sort(key=lambda t: t.timestamp)
+
+# hoursFromStart is relative to the earliest transaction in this dataset,
+# so it can only be computed once every row is sorted chronologically.
+dataset_start = staging_rows[0].timestamp
+staging_rows = [t.with_hours_from_start(dataset_start) for t in staging_rows]
 
 print(f"[OK] Validated {len(staging_rows):,} rows through StagingTransaction")
 

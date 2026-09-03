@@ -21,13 +21,10 @@ class Account(SQLModel, table=True):
 
     __tablename__ = "account"
 
-    accountId: str = Field(primary_key=True)     # e.g. "070_1004287C8"
+    accountId: str = Field(primary_key=True)     # e.g. "1004287C8_070"
     bank: str = Field(index=True)                  # e.g. "070"
     accountNumber: str                              # e.g. "1004287C8"
 
-    # Two separate relationships back to Transaction, since a Transaction
-    # has TWO foreign keys into this table (senderAcc, receiverAcc) --
-    # sa_relationship_kwargs disambiguates which FK each relationship follows.
     sentTransactions: List["Transaction"] = Relationship(
         back_populates="sender",
         sa_relationship_kwargs={"foreign_keys": "Transaction.senderAcc"},
@@ -39,6 +36,6 @@ class Account(SQLModel, table=True):
 
     @classmethod
     def from_id(cls, account_id: str) -> "Account":
-        """Split '070_1004287C8' -> Account(bank='070', accountNumber='1004287C8')."""
-        bank, _, account_number = account_id.partition("_")
+        """Split '1004287C8_070' -> Account(accountNumber='1004287C8',bank='070')."""
+        account_number, _, bank = account_id.partition("_")
         return cls(accountId=account_id, bank=bank, accountNumber=account_number)
