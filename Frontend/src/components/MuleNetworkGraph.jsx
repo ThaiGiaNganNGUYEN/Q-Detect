@@ -327,15 +327,160 @@ function linkLabelPoint(d) {
 	};
 }
 
-function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed, cashOutIconUrl, zoomApiRef }) {
+function sameId(a, b) {
+	if (a == null || b == null) {
+		return false;
+	}
+	return String(a) === String(b);
+}
+
+function endpointId(end) {
+	return typeof end === "object" && end ? end.id : end;
+}
+
+function linkTxId(link) {
+	return link?.txId ?? link?.id ?? null;
+}
+
+function linkTouchesNode(link, nodeId) {
+	return sameId(endpointId(link.source), nodeId) || sameId(endpointId(link.target), nodeId);
+}
+
+function clampPopupPosition(container, event, popupWidth, popupHeight) {
+	const rect = container.getBoundingClientRect();
+	let x = event.clientX - rect.left + 14;
+	let y = event.clientY - rect.top + 14;
+	if (x + popupWidth > rect.width - 8) {
+		x = Math.max(8, event.clientX - rect.left - popupWidth - 14);
+	}
+	if (y + popupHeight > rect.height - 8) {
+		y = Math.max(8, rect.height - popupHeight - 8);
+	}
+	return { x, y };
+}
+
+function formatPopupAmount(amount, currency) {
+	const numeric = typeof amount === "string" ? Number(amount.replace(/,/g, "")) : Number(amount);
+	const formatted = Number.isFinite(numeric)
+		? numeric.toLocaleString("en-US", {
+				minimumFractionDigits: 0,
+				maximumFractionDigits: 2,
+			})
+		: (amount ?? "—");
+	return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function EdgeTransactionPopup({ tx, x, y, onClose, isDark }) {
+	const rows = [
+		["Transaction ID", tx.id ?? "—"],
+		["Timestamp", tx.timestamp ?? "—"],
+		["Sender Bank", tx.sender?.bank ?? "—"],
+		["Sender Account ID", tx.sender?.account_number ?? "—"],
+		["Receiver Bank", tx.isCashOut ? "—" : (tx.receiver?.bank ?? "—")],
+		["Receiver Account ID", tx.isCashOut ? "—" : (tx.receiver?.account_number ?? "—")],
+		["Amount", formatPopupAmount(tx.amount, tx.currency)],
+		["Transaction Format", tx.payment_format ?? "—"],
+	];
+
+	return (
+		<div
+			role="dialog"
+			aria-label={`Transaction ${tx.id} details`}
+			className={`absolute z-20 w-72 max-h-[min(340px,calc(100%-16px))] overflow-auto rounded-lg border px-3 py-2.5 text-xs shadow-xl ${
+				isDark ? "border-zinc-600 bg-zinc-900 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
+			}`}
+			style={{ left: x, top: y }}
+			onMouseDown={(event) => event.stopPropagation()}
+			onClick={(event) => event.stopPropagation()}
+		>
+			<div className="mb-2 flex items-start justify-between gap-2">
+				<p className="font-semibold">Transaction details</p>
+				<button
+					type="button"
+					className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+					aria-label="Close transaction details"
+					onClick={onClose}
+				>
+					×
+				</button>
+			</div>
+			<dl className="space-y-1.5">
+				{rows.map(([label, value]) => (
+					<div key={label} className="grid grid-cols-[7.5rem_1fr] gap-x-2">
+						<dt className="text-zinc-500 dark:text-zinc-400">{label}:</dt>
+						<dd className="break-all font-medium">{value}</dd>
+					</div>
+				))}
+			</dl>
+		</div>
+	);
+}
+
+function NodeAccountPopup({ node, transactionCount, x, y, onClose, isDark }) {
+	const rows = [
+		["Account Bank ID", node.bank ?? "—"],
+		["Account ID", node.account_number ?? "—"],
+		["Total number of transactions", transactionCount],
+	];
+
+	return (
+		<div
+			role="dialog"
+			aria-label={`Account ${node.account_number ?? node.id} details`}
+			className={`absolute z-20 w-72 max-h-[min(240px,calc(100%-16px))] overflow-auto rounded-lg border px-3 py-2.5 text-xs shadow-xl ${
+				isDark ? "border-zinc-600 bg-zinc-900 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
+			}`}
+			style={{ left: x, top: y }}
+			onMouseDown={(event) => event.stopPropagation()}
+			onClick={(event) => event.stopPropagation()}
+		>
+			<div className="mb-2 flex items-start justify-between gap-2">
+				<p className="font-semibold">Account details</p>
+				<button
+					type="button"
+					className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+					aria-label="Close account details"
+					onClick={onClose}
+				>
+					×
+				</button>
+			</div>
+			<dl className="space-y-1.5">
+				{rows.map(([label, value]) => (
+					<div key={label} className="grid grid-cols-[9.5rem_1fr] gap-x-2">
+						<dt className="text-zinc-500 dark:text-zinc-400">{label}:</dt>
+						<dd className="break-all font-medium">{value}</dd>
+					</div>
+				))}
+			</dl>
+		</div>
+	);
+}
+
+function renderStaticGraph({
+	container,
+	graphId,
+	nodes,
+	links,
+	isDark,
+	detailed,
+	cashOutIconUrl,
+	zoomApiRef,
+	highlightApiRef,
+	interactionRef,
+	selection = null,
+	transactions = [],
+}) {
 	const width = container.clientWidth || (detailed ? 960 : 640);
 	const height = container.clientHeight || (detailed ? 640 : 380);
 	const linkStroke = isDark ? "#a1a1aa" : "#9a9a9a";
+	const highlightStroke = isDark ? "#38bdf8" : "#0284c7";
 	const labelFill = isDark ? "#f4f4f5" : "#18181b";
 	const cashOutLabel = "#16a34a";
 	const bgFill = isDark ? "#18181b" : "#ececec";
 	const userFill = "#111111";
 	const markerId = `arrow-${graphId}-${detailed ? "detail" : "simple"}`;
+	const highlightMarkerId = `${markerId}-hi`;
 
 	const visibleNodes = detailed ? nodes : nodes.filter((node) => node.kind === "account");
 	const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
@@ -348,6 +493,7 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 			});
 
 	const layout = computeLayout(visibleNodes, visibleLinks, width, height, detailed);
+	const graphInteractive = Boolean(interactionRef?.current?.onSelect);
 
 	const svg = d3
 		.select(container)
@@ -373,19 +519,53 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 		.attr("d", "M0,-5L10,0L0,5")
 		.attr("fill", linkStroke);
 
+	defs
+		.append("marker")
+		.attr("id", highlightMarkerId)
+		.attr("viewBox", "0 -5 10 10")
+		.attr("refX", 9)
+		.attr("refY", 0)
+		.attr("markerWidth", 8)
+		.attr("markerHeight", 8)
+		.attr("orient", "auto")
+		.append("path")
+		.attr("d", "M0,-5L10,0L0,5")
+		.attr("fill", highlightStroke);
+
 	const viewport = svg.append("g").attr("class", "viewport");
 
 	const link = viewport
 		.append("g")
+		.attr("class", "links")
 		.attr("fill", "none")
 		.selectAll("path")
 		.data(layout.links)
 		.join("path")
+		.attr("class", "graph-link")
 		.attr("stroke", linkStroke)
 		.attr("stroke-width", 2.2)
 		.attr("stroke-opacity", 0.95)
+		.attr("stroke-linecap", "round")
+		.attr("stroke-linejoin", "round")
 		.attr("marker-end", `url(#${markerId})`)
-		.attr("d", linkPath);
+		.attr("d", linkPath)
+		.attr("pointer-events", "none");
+
+	const linkHit = viewport
+		.append("g")
+		.attr("class", "link-hits")
+		.attr("fill", "none")
+		.selectAll("path")
+		.data(layout.links)
+		.join("path")
+		.attr("class", "edge-hit")
+		.attr("stroke", "transparent")
+		.attr("stroke-width", 18)
+		.attr("stroke-linecap", "round")
+		.attr("stroke-linejoin", "round")
+		.attr("d", linkPath)
+		.style("cursor", graphInteractive ? "pointer" : "inherit")
+		.attr("pointer-events", graphInteractive ? "stroke" : "none");
 
 	const linkLabel = detailed
 		? viewport
@@ -433,10 +613,20 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 		.selectAll("g")
 		.data(layout.nodes)
 		.join("g")
-		.attr("transform", (d) => `translate(${d.x},${d.y})`);
+		.attr("class", "graph-node node-hit")
+		.attr("transform", (d) => `translate(${d.x},${d.y})`)
+		.style("cursor", graphInteractive ? "pointer" : "inherit");
 
 	node.each(function (d) {
 		const g = d3.select(this);
+		g.append("circle")
+			.attr("class", "node-highlight-ring")
+			.attr("r", (d.r ?? 44) + 7)
+			.attr("fill", "none")
+			.attr("stroke", highlightStroke)
+			.attr("stroke-width", 3.5)
+			.attr("opacity", 0)
+			.attr("pointer-events", "none");
 		if (d.kind === "cashout") {
 			const radius = d.r ?? (detailed ? 42 : 38);
 			const iconSize = radius * 1.55;
@@ -472,7 +662,11 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 
 		if (detailed) {
 			g.append("text")
-				.text(d.label ?? d.lastName ?? d.account_number ?? d.id)
+				.text(
+					d.bank && d.account_number
+						? `${d.bank}/${d.account_number}`
+						: (d.account_number ?? d.id),
+				)
 				.attr("x", 0)
 				.attr("y", -(d.r ?? 48) - 12)
 				.attr("text-anchor", "middle")
@@ -487,9 +681,101 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 		}
 	});
 
+	const resolveTxHighlight = (txId) => {
+		if (txId == null) {
+			return null;
+		}
+		const selectedLink = layout.links.find((item) => sameId(linkTxId(item), txId));
+		if (selectedLink) {
+			return {
+				txIds: new Set([String(linkTxId(selectedLink))]),
+				nodeIds: new Set([String(endpointId(selectedLink.source)), String(endpointId(selectedLink.target))]),
+				focusNodeId: null,
+			};
+		}
+		const txList = interactionRef?.current?.transactions ?? transactions;
+		const tx = txList.find((item) => sameId(item.id, txId));
+		if (!tx) {
+			return null;
+		}
+		return {
+			txIds: new Set([String(tx.id)]),
+			nodeIds: new Set(
+				[tx.sender?.id, tx.isCashOut ? `cashout-${tx.sender?.id}` : tx.receiver?.id].filter(Boolean).map(String),
+			),
+			focusNodeId: null,
+		};
+	};
+
+	const resolveNodeHighlight = (nodeId) => {
+		if (nodeId == null) {
+			return null;
+		}
+		const txIds = new Set();
+		const nodeIds = new Set([String(nodeId)]);
+		layout.links.forEach((item) => {
+			if (!linkTouchesNode(item, nodeId)) {
+				return;
+			}
+			const txId = linkTxId(item);
+			if (txId != null) {
+				txIds.add(String(txId));
+			}
+			nodeIds.add(String(endpointId(item.source)));
+			nodeIds.add(String(endpointId(item.target)));
+		});
+		return { txIds, nodeIds, focusNodeId: String(nodeId) };
+	};
+
+	const applyHighlight = (nextSelection) => {
+		const highlight =
+			nextSelection?.type === "node"
+				? resolveNodeHighlight(nextSelection.id)
+				: resolveTxHighlight(nextSelection?.type === "transaction" ? nextSelection.id : nextSelection);
+		const txHighlighted = (d) => Boolean(highlight?.txIds?.has(String(linkTxId(d))));
+		link
+			.attr("stroke", (d) => (txHighlighted(d) ? highlightStroke : linkStroke))
+			.attr("stroke-width", (d) => (txHighlighted(d) ? 4 : 2.2))
+			.attr("stroke-opacity", (d) => {
+				if (!highlight) {
+					return 0.95;
+				}
+				return txHighlighted(d) ? 1 : 0.28;
+			})
+			.attr("marker-end", (d) => (txHighlighted(d) ? `url(#${highlightMarkerId})` : `url(#${markerId})`));
+		node.select(".node-highlight-ring")
+			.attr("opacity", (d) => (highlight?.nodeIds?.has(String(d.id)) ? 1 : 0))
+			.attr("stroke-width", (d) => (highlight?.focusNodeId && sameId(d.id, highlight.focusNodeId) ? 4.5 : 3.5));
+	};
+
+	applyHighlight(selection);
+
+	if (highlightApiRef) {
+		highlightApiRef.current = { apply: applyHighlight };
+	}
+
 	const zoom = d3
 		.zoom()
 		.scaleExtent([0.45, 3.5])
+		.filter((event) => {
+			if (event.type === "wheel") {
+				return true;
+			}
+			if (event.button) {
+				return false;
+			}
+			if (!graphInteractive) {
+				return true;
+			}
+			const target = event.target;
+			if (target.classList?.contains("edge-hit")) {
+				return false;
+			}
+			if (typeof target.closest === "function" && target.closest(".node-hit")) {
+				return false;
+			}
+			return true;
+		})
 		.on("start", () => {
 			svg.style("cursor", "grabbing");
 		})
@@ -502,6 +788,41 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 
 	svg.call(zoom);
 	svg.on("dblclick.zoom", null);
+
+	if (graphInteractive) {
+		linkHit.on("click", (event, d) => {
+			event.stopPropagation();
+			const txId = linkTxId(d);
+			const nextSelection = { type: "transaction", id: txId };
+			applyHighlight(nextSelection);
+			interactionRef?.current?.onSelect?.(nextSelection);
+			if (interactionRef?.current?.enableEdgePopup) {
+				interactionRef.current.openPopup?.(event, d);
+			}
+		});
+
+		node.on("click", (event, d) => {
+			event.stopPropagation();
+			if (d.kind === "cashout") {
+				return;
+			}
+			const nextSelection = { type: "node", id: d.id };
+			applyHighlight(nextSelection);
+			interactionRef?.current?.onSelect?.(nextSelection);
+			if (interactionRef?.current?.enableNodePopup) {
+				const transactionCount = layout.links.filter((item) => linkTouchesNode(item, d.id)).length;
+				interactionRef.current.openNodePopup?.(event, d, transactionCount);
+			}
+		});
+
+		svg.select("rect.graph-bg").on("click", (event) => {
+			if (event.defaultPrevented) {
+				return;
+			}
+			applyHighlight(null);
+			interactionRef?.current?.onSelect?.(null);
+		});
+	}
 
 	if (zoomApiRef) {
 		zoomApiRef.current = {
@@ -525,6 +846,7 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 			}
 		});
 		link.attr("d", linkPath);
+		linkHit.attr("d", linkPath);
 		if (linkLabel) {
 			linkLabel.attr("transform", (d) => {
 				const point = linkLabelPoint(d);
@@ -539,15 +861,85 @@ function renderStaticGraph({ container, graphId, nodes, links, isDark, detailed,
 		if (zoomApiRef) {
 			zoomApiRef.current = null;
 		}
+		if (highlightApiRef) {
+			highlightApiRef.current = null;
+		}
 		resizeObserver.disconnect();
 		svg.on(".zoom", null);
 		svg.remove();
 	};
 }
 
-function GraphCanvas({ graphId, nodes, links, isDark, detailed, className = "", showExpand = false, onExpand }) {
+function GraphCanvas({
+	graphId,
+	nodes,
+	links,
+	isDark,
+	detailed,
+	className = "",
+	showExpand = false,
+	onExpand,
+	transactions = [],
+	selection = null,
+	onSelect,
+	enableEdgePopup = false,
+	enableNodePopup = false,
+}) {
 	const containerRef = useRef(null);
 	const zoomApiRef = useRef(null);
+	const highlightApiRef = useRef(null);
+	const interactionRef = useRef({
+		onSelect,
+		enableEdgePopup,
+		enableNodePopup,
+		transactions,
+	});
+	const [popup, setPopup] = useState(null);
+
+	const closePopup = () => {
+		setPopup(null);
+		onSelect?.(null);
+	};
+
+	interactionRef.current.onSelect = onSelect;
+	interactionRef.current.enableEdgePopup = enableEdgePopup;
+	interactionRef.current.enableNodePopup = enableNodePopup;
+	interactionRef.current.transactions = transactions;
+	interactionRef.current.openPopup = (event, link) => {
+		const tx =
+			transactions.find((item) => sameId(item.id, linkTxId(link))) ??
+			(link
+				? {
+						id: linkTxId(link),
+						timestamp: link.timestamp,
+						amount: link.amount,
+						currency: link.currency,
+						payment_format: link.payment_format,
+						sender: link.sender,
+						receiver: link.receiver,
+						isCashOut: link.isCashOut,
+					}
+				: null);
+		if (!tx || !containerRef.current) {
+			return;
+		}
+		const { x, y } = clampPopupPosition(containerRef.current, event, 288, 340);
+		setPopup({ kind: "tx", txId: linkTxId(link), tx, x, y });
+	};
+	interactionRef.current.openNodePopup = (event, node, transactionCount) => {
+		if (!node || !containerRef.current) {
+			return;
+		}
+		const { x, y } = clampPopupPosition(containerRef.current, event, 288, 200);
+		setPopup({
+			kind: "node",
+			nodeId: node.id,
+			node,
+			transactionCount,
+			x,
+			y,
+		});
+	};
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -563,16 +955,62 @@ function GraphCanvas({ graphId, nodes, links, isDark, detailed, className = "", 
 			detailed,
 			cashOutIconUrl: cashOutIcon,
 			zoomApiRef,
+			highlightApiRef,
+			interactionRef,
+			selection,
+			transactions,
 		});
 	}, [graphId, nodes, links, isDark, detailed]);
 
+	useEffect(() => {
+		highlightApiRef.current?.apply(selection);
+		if (selection == null) {
+			setPopup(null);
+			return;
+		}
+		setPopup((current) => {
+			if (!current) {
+				return current;
+			}
+			if (selection.type === "transaction" && current.kind === "tx" && sameId(current.txId, selection.id)) {
+				return current;
+			}
+			if (selection.type === "node" && current.kind === "node" && sameId(current.nodeId, selection.id)) {
+				return current;
+			}
+			return null;
+		});
+	}, [selection]);
+
+	useEffect(() => {
+		if (!popup) {
+			return undefined;
+		}
+		const onKeyDown = (event) => {
+			if (event.key === "Escape") {
+				closePopup();
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [popup, onSelect]);
+
 	return (
 		<div className={`relative ${className}`}>
-			<div
-				ref={containerRef}
-				className="h-full w-full"
-				style={{ backgroundColor: isDark ? "#18181b" : "#ececec" }}
-			/>
+			<div ref={containerRef} className="h-full w-full" />
+			{popup?.kind === "tx" ? (
+				<EdgeTransactionPopup tx={popup.tx} x={popup.x} y={popup.y} isDark={isDark} onClose={closePopup} />
+			) : null}
+			{popup?.kind === "node" ? (
+				<NodeAccountPopup
+					node={popup.node}
+					transactionCount={popup.transactionCount}
+					x={popup.x}
+					y={popup.y}
+					isDark={isDark}
+					onClose={closePopup}
+				/>
+			) : null}
 			<div className="absolute right-3 bottom-3 z-10 flex flex-col gap-2">
 				{showExpand ? (
 					<button
@@ -608,7 +1046,18 @@ function GraphCanvas({ graphId, nodes, links, isDark, detailed, className = "", 
 	);
 }
 
-export default function MuleNetworkGraph({ graphId, graphName, nodes, links, risk, isDark = false, className = "" }) {
+export default function MuleNetworkGraph({
+	graphId,
+	graphName,
+	nodes,
+	links,
+	risk,
+	isDark = false,
+	className = "",
+	transactions = [],
+	selection = null,
+	onSelect,
+}) {
 	const [detailedOpen, setDetailedOpen] = useState(false);
 
 	useEffect(() => {
@@ -646,6 +1095,11 @@ export default function MuleNetworkGraph({ graphId, graphName, nodes, links, ris
 					showExpand
 					onExpand={() => setDetailedOpen(true)}
 					className="h-full w-full"
+					transactions={transactions}
+					selection={selection}
+					onSelect={onSelect}
+					enableEdgePopup
+					enableNodePopup
 				/>
 			</div>
 

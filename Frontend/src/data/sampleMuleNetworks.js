@@ -28,7 +28,10 @@ function formatParty(party) {
 }
 
 function partyLabel(party) {
-	return party?.last_name || party?.account_number || party?.id || "Account";
+	if (party?.bank && party?.account_number) {
+		return `${party.bank}/${party.account_number}`;
+	}
+	return party?.account_number || party?.id || "Account";
 }
 
 /**
@@ -88,24 +91,32 @@ export function adaptCluster(cluster, options = {}) {
 			links.push({
 				source: tx.sender.id,
 				target: cashId,
+				txId: tx.id,
 				amount: formatAmount(tx.amount),
 				ref: `Tr-Id ${tx.id}`,
 				isCashOut: true,
 				route: route ?? "cashout",
 				currency: tx.currency,
 				payment_format: tx.payment_format,
+				timestamp: tx.timestamp,
+				sender: tx.sender,
+				receiver: tx.receiver,
 			});
 		} else {
 			ensureAccount(tx.receiver);
 			links.push({
 				source: tx.sender.id,
 				target: tx.receiver.id,
+				txId: tx.id,
 				amount: formatAmount(tx.amount),
 				ref: `Tr-Id ${tx.id}`,
 				isCashOut: false,
 				route,
 				currency: tx.currency,
 				payment_format: tx.payment_format,
+				timestamp: tx.timestamp,
+				sender: tx.sender,
+				receiver: tx.receiver,
 			});
 		}
 
