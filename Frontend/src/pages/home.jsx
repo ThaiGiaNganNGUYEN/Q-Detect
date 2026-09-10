@@ -106,6 +106,7 @@ function resolveTheme(theme) {
 
 export default function Home() {
 	const [selectedGraphId, setSelectedGraphId] = useState(() => sampleMuleNetworks[0]?.id ?? "0");
+	const [graphSelection, setGraphSelection] = useState(null);
 	const [graphStatuses, setGraphStatuses] = useState(() =>
 		Object.fromEntries(sampleMuleNetworks.map((graph) => [graph.id, graph.status ?? "Pending"])),
 	);
@@ -134,6 +135,18 @@ export default function Home() {
 		media.addEventListener("change", onChange);
 		return () => media.removeEventListener("change", onChange);
 	}, [theme]);
+
+	useEffect(() => {
+		setGraphSelection(null);
+	}, [selectedGraphId]);
+
+	useEffect(() => {
+		if (graphSelection?.type !== "transaction" || graphSelection.id == null) {
+			return;
+		}
+		const row = document.querySelector(`[data-tx-row="${graphSelection.id}"]`);
+		row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+	}, [graphSelection]);
 
 	const selectedGraph = getMuleNetworkById(selectedGraphId);
 	const selectedStatus = graphStatuses[selectedGraph.id] ?? "Pending";
@@ -187,7 +200,10 @@ export default function Home() {
 											? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
 											: "text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-zinc-800"
 									}`}
-									onClick={() => setSelectedGraphId(graph.id)}
+									onClick={() => {
+										setSelectedGraphId(graph.id);
+										setGraphSelection(null);
+									}}
 								>
 									<td className="px-2 py-2 font-medium">{graph.name}</td>
 									<td className="px-2 py-2">{graph.risk}%</td>
@@ -288,6 +304,9 @@ export default function Home() {
 						risk={selectedGraph.risk}
 						isDark={isDark}
 						className="my-4"
+						transactions={selectedGraph.transactions}
+						selection={graphSelection}
+						onSelect={setGraphSelection}
 					/>
 
 					<h2 className="mb-2 text-xl font-semibold">Transaction Details</h2>
@@ -304,13 +323,31 @@ export default function Home() {
 								</tr>
 							</thead>
 							<tbody>
-								{selectedGraph.transactions.map((tx, index) => (
+								{selectedGraph.transactions.map((tx, index) => {
+									const selected =
+										graphSelection?.type === "transaction" && String(tx.id) === String(graphSelection.id);
+									const connectedToNode =
+										graphSelection?.type === "node" &&
+										!tx.isCashOut &&
+										(String(tx.sender?.id) === String(graphSelection.id) ||
+											String(tx.receiver?.id) === String(graphSelection.id));
+									return (
 									<tr
 										key={tx.id}
-										className={
-											index % 2 === 0
-												? "bg-zinc-50 dark:bg-zinc-900/60"
-												: "bg-white dark:bg-zinc-950"
+										data-tx-row={tx.id}
+										className={`cursor-pointer ${
+											selected || connectedToNode
+												? "bg-sky-100 ring-1 ring-inset ring-sky-400 dark:bg-sky-900/50 dark:ring-sky-400"
+												: index % 2 === 0
+													? "bg-zinc-50 hover:bg-sky-50 dark:bg-zinc-900/60 dark:hover:bg-sky-950/40"
+													: "bg-white hover:bg-sky-50 dark:bg-zinc-950 dark:hover:bg-sky-950/40"
+										}`}
+										onClick={() =>
+											setGraphSelection((current) =>
+												current?.type === "transaction" && String(current.id) === String(tx.id)
+													? null
+													: { type: "transaction", id: tx.id },
+											)
 										}
 									>
 										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.id}</td>
@@ -326,7 +363,8 @@ export default function Home() {
 											{tx.payment_format}
 										</td>
 									</tr>
-								))}
+									);
+								})}
 							</tbody>
 						</table>
 					</div>
