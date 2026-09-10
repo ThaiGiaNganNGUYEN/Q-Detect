@@ -11,6 +11,14 @@ export default function LogIn() {
 		event.preventDefault();
 		setError("");
 
+		// TEMP: login has no backend yet -- VITE_API_BASE_URL is only set so
+		// the graph/cluster API (api/clusters.js) is reachable, and that
+		// backend has no auth endpoints mounted. Bypassing straight to the
+		// dashboard for now instead of running the real login call below.
+		window.location.hash = "#dashboard";
+		return;
+
+		/* eslint-disable no-unreachable */
 		const form = new FormData(event.currentTarget);
 		const email = String(form.get("email") ?? "").trim();
 		const password = String(form.get("password") ?? "");
@@ -34,6 +42,7 @@ export default function LogIn() {
 		} finally {
 			setPending(false);
 		}
+		/* eslint-enable no-unreachable */
 	};
 
 	return (

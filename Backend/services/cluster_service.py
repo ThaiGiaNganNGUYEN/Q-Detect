@@ -123,26 +123,34 @@ def compute_clusters(min_size: int = 1) -> list[Cluster]:
             transactions.append(TransactionRead(
                 transactionId=str(tx_id_counter),
                 amountPaid=float(edge_data.get('amount_paid', 0.0)),
-                amountReceived=float(edge_data.get('amount_received', 0.0)),
                 currencyPaid=str(edge_data.get('currency_paid', '')),
-                currencyReceived=str(edge_data.get('currency_received', '')),
                 paymentFormat=str(edge_data.get('payment_format', '')),
                 timestamp=str(edge_data.get('timestamp', '')),
-                isNight=bool(edge_data.get('is_night', False)),
-                isWeekend=bool(edge_data.get('is_weekend', False)),
                 hoursFromStart=float(edge_data.get('hours_from_start', 0.0)),
                 isCrossBank=bool(edge_data.get('is_cross_bank', False)),
                 isCrossCurrency=bool(edge_data.get('is_cross_currency', False)),
                 isSelfTransfer=bool(edge_data.get('is_self_transfer', False)),
+                # Placeholder until real ML scoring exists -- 0.0/1.0 mirroring
+                # is_laundering. Swap this one line for a real per-transaction
+                # fraud probability (e.g. 0.6995) later; nothing below needs to change.
+                fraudRiskScore=float(edge_data.get('is_laundering', False)),
                 sender=sender,
                 receiver=receiver,
             ))
             tx_id_counter += 1
 
+        # Cluster-level risk score: average fraud_risk_score across this
+        # cluster's transactions, as a percentage. Averaging (not counting
+        # how many are "flagged") is what makes this keep working once
+        # fraudRiskScore becomes a real continuous probability instead of 0/1.
+        total_score = sum(tx.fraudRiskScore for tx in transactions)
+        risk_score = round(100 * total_score / len(transactions)) if transactions else 0
+
         clusters.append(Cluster(
             clusterId=cluster_id,
             numAccounts=len(node_ids),
             numTransactions=sub.number_of_edges(),
+            riskScore=risk_score,
             transactions=transactions,
         ))
 

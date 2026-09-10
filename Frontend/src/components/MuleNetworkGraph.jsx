@@ -68,7 +68,8 @@ function computeLayout(nodes, links, width, height, detailed) {
 				return { ...link, source, target };
 			})
 			.filter(Boolean);
-		return { nodes: [...nodeById.values()], links: resolvedLinks };
+		// Fixed layouts use hand-picked proportions -- no dynamic spacing needed.
+		return { nodes: [...nodeById.values()], links: resolvedLinks, height };
 	}
 	return computeLayeredLayout(nodes, links, width, height, detailed);
 }
@@ -137,7 +138,18 @@ function computeLayeredLayout(nodes, links, width, height, detailed) {
 	const marginX = detailed ? 140 : 100;
 	const marginY = detailed ? 120 : 90;
 	const usableWidth = Math.max(180, width - marginX * 2);
-	const usableHeight = Math.max(180, height - marginY * 2);
+
+	// Minimum center-to-center gap between two account nodes stacked in the
+	// same column, so a cluster with many accounts in one layer doesn't
+	// compress them into an overlapping pile -- the canvas grows taller
+	// instead, and the existing zoom/pan controls handle showing all of it.
+	const accountDiameter = nodeRadius({ kind: "account" }, detailed) * 2;
+	const minRowSpacing = accountDiameter + (detailed ? 36 : 24);
+	const largestColumnSize = Math.max(1, ...columns.map((column) => column.length));
+	const requiredHeight = (largestColumnSize - 1) * minRowSpacing;
+
+	const usableHeight = Math.max(180, height - marginY * 2, requiredHeight);
+	const totalHeight = usableHeight + marginY * 2;
 	const columnGap = maxLayer === 0 ? 0 : usableWidth / maxLayer;
 
 	columns.forEach((column, columnIndex) => {
@@ -188,7 +200,7 @@ function computeLayeredLayout(nodes, links, width, height, detailed) {
 		})
 		.filter(Boolean);
 
-	return { nodes: positioned, links: resolvedLinks };
+	return { nodes: positioned, links: resolvedLinks, height: totalHeight };
 }
 
 function edgePoint(node, side) {
@@ -492,8 +504,6 @@ function renderStaticGraph({
 		.attr("role", "img")
 		.attr("aria-label", `${detailed ? "Detailed" : "Simplified"} mule network ${graphId}`)
 		.style("cursor", "grab");
-
-	svg.append("rect").attr("class", "graph-bg").attr("width", width).attr("height", height).attr("fill", bgFill);
 
 	const defs = svg.append("defs");
 	defs
@@ -824,9 +834,8 @@ function renderStaticGraph({
 	const resizeObserver = new ResizeObserver(() => {
 		const nextWidth = container.clientWidth || width;
 		const nextHeight = container.clientHeight || height;
-		svg.attr("viewBox", `0 0 ${nextWidth} ${nextHeight}`);
-		svg.select("rect.graph-bg").attr("width", nextWidth).attr("height", nextHeight);
 		const nextLayout = computeLayout(visibleNodes, visibleLinks, nextWidth, nextHeight, detailed);
+		svg.attr("viewBox", `0 0 ${nextWidth} ${nextHeight}`);
 		const nextById = new Map(nextLayout.nodes.map((item) => [item.id, item]));
 		layout.nodes.forEach((item) => {
 			const next = nextById.get(item.id);
