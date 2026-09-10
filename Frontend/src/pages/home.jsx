@@ -167,18 +167,51 @@ export default function Home() {
 	}, [theme]);
 
 	useEffect(() => {
+		if (!isApiConfigured()) {
+			return undefined;
+		}
+
+		let cancelled = false;
+		setGraphsLoading(true);
+		setGraphsError(null);
+
+		getClusters()
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+				const { clusters } = adaptClustersResponse(toRawClusterList(response));
+				if (clusters.length === 0) {
+					return;
+				}
+				setMuleNetworks(clusters);
+				setGraphStatuses(
+					Object.fromEntries(clusters.map((graph) => [graph.id, graph.status ?? "Pending"])),
+				);
+				setSelectedGraphId(clusters[0].id);
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setGraphsError(getErrorMessage(error));
+				}
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setGraphsLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
 		setGraphSelection(null);
 	}, [selectedGraphId]);
 
-	useEffect(() => {
-		if (graphSelection?.type !== "transaction" || graphSelection.id == null) {
-			return;
-		}
-		const row = document.querySelector(`[data-tx-row="${graphSelection.id}"]`);
-		row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-	}, [graphSelection]);
-
-	const selectedGraph = getMuleNetworkById(selectedGraphId);
+	const selectedGraph =
+		muleNetworks.find((graph) => String(graph.id) === String(selectedGraphId)) ?? muleNetworks[0];
 	const selectedStatus = graphStatuses[selectedGraph.id] ?? "Pending";
 	const isDark = resolvedTheme === "dark";
 
