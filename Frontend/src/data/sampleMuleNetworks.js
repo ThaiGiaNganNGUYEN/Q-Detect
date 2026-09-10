@@ -116,6 +116,13 @@ export function adaptCluster(cluster, options = {}) {
 			amount: tx.amount,
 			currency: tx.currency,
 			payment_format: tx.payment_format ?? "—",
+			// Undefined for the static sample data (it predates these fields) --
+			// the table renders a placeholder when they're missing.
+			hours_from_start: tx.hours_from_start,
+			is_cross_bank: tx.is_cross_bank,
+			is_cross_currency: tx.is_cross_currency,
+			is_self_transfer: tx.is_self_transfer,
+			fraud_risk_score: tx.fraud_risk_score,
 			sender: tx.sender,
 			receiver: tx.receiver,
 			fromLabel: formatParty(tx.sender),

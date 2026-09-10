@@ -3,9 +3,11 @@ import qDetectLogo from "../assets/qdetect-logo.png";
 import MarkGraphStatus from "../components/MarkGraphStatus";
 import MuleNetworkGraph from "../components/MuleNetworkGraph";
 import { logout } from "../api/auth";
-import { isApiConfigured } from "../api/client";
+import { getErrorMessage, isApiConfigured } from "../api/client";
+import { getClusters } from "../api/clusters";
 import { updateGraphStatus } from "../api/graphs";
-import { getMuleNetworkById, sampleMuleNetworks } from "../data/sampleMuleNetworks";
+import { toRawClusterList } from "../data/adaptBackendCluster";
+import { adaptClustersResponse, sampleMuleNetworks } from "../data/sampleMuleNetworks";
 import Settings from "./settings";
 
 function formatAmount(amount) {
@@ -13,6 +15,29 @@ function formatAmount(amount) {
 		minimumFractionDigits: 0,
 		maximumFractionDigits: 2,
 	});
+}
+
+// Undefined for the sample-data fallback (it predates these fields) --
+// every formatter below renders "—" instead of "undefined"/"NaN" in that case.
+function formatBoolean(value) {
+	if (value === undefined || value === null) {
+		return "—";
+	}
+	return value ? "Yes" : "No";
+}
+
+function formatHours(hours) {
+	if (typeof hours !== "number" || Number.isNaN(hours)) {
+		return "—";
+	}
+	return `${hours.toFixed(1)}h`;
+}
+
+function formatRiskScore(score) {
+	if (typeof score !== "number" || Number.isNaN(score)) {
+		return "—";
+	}
+	return `${Math.round(score * 100)}%`;
 }
 
 function statusClass(status, selected) {
@@ -105,6 +130,11 @@ function resolveTheme(theme) {
 }
 
 export default function Home() {
+	// Starts as the static sample data so the dashboard renders immediately;
+	// swapped for live backend clusters by the effect below once they load.
+	const [muleNetworks, setMuleNetworks] = useState(sampleMuleNetworks);
+	const [graphsLoading, setGraphsLoading] = useState(false);
+	const [graphsError, setGraphsError] = useState(null);
 	const [selectedGraphId, setSelectedGraphId] = useState(() => sampleMuleNetworks[0]?.id ?? "0");
 	const [graphStatuses, setGraphStatuses] = useState(() =>
 		Object.fromEntries(sampleMuleNetworks.map((graph) => [graph.id, graph.status ?? "Pending"])),
@@ -135,7 +165,50 @@ export default function Home() {
 		return () => media.removeEventListener("change", onChange);
 	}, [theme]);
 
-	const selectedGraph = getMuleNetworkById(selectedGraphId);
+	// Fetches real clusters from the backend once on mount, skipping
+	// entirely when VITE_API_BASE_URL isn't set (keeps sample data as-is
+	// for local/offline UI work). `cancelled` guards against setting state
+	// after unmount or after a second effect run in strict mode.
+	useEffect(() => {
+		if (!isApiConfigured()) {
+			return undefined;
+		}
+
+		let cancelled = false;
+		setGraphsLoading(true);
+		setGraphsError(null);
+
+		getClusters()
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+				const adapted = adaptClustersResponse(toRawClusterList(response));
+				const next = adapted.clusters.length > 0 ? adapted.clusters : sampleMuleNetworks;
+				setMuleNetworks(next);
+				// Keep the current selection if it still exists in the new
+				// list, otherwise fall back to the first live cluster.
+				setSelectedGraphId((current) => (next.some((graph) => graph.id === current) ? current : (next[0]?.id ?? current)));
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setGraphsError(getErrorMessage(error));
+				}
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setGraphsLoading(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	// Looks up the selection from live/sample state directly instead of the
+	// old getMuleNetworkById helper, which only ever knew about sampleMuleNetworks.
+	const selectedGraph = muleNetworks.find((graph) => graph.id === selectedGraphId) ?? muleNetworks[0];
 	const selectedStatus = graphStatuses[selectedGraph.id] ?? "Pending";
 	const isDark = resolvedTheme === "dark";
 
@@ -164,7 +237,18 @@ export default function Home() {
 		<div className="flex h-full flex-col">
 			<div className="flex items-center gap-2 px-3 pt-5 pb-3">
 				<span className="text-2xl font-semibold tracking-wide">Dashboard</span>
+				{/* Shown only while the live /api/clusters fetch is in flight. */}
+				{graphsLoading ? (
+					<span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">Loading…</span>
+				) : null}
 			</div>
+
+			{/* Fetch failed -- muleNetworks already fell back to sampleMuleNetworks, this just says so. */}
+			{graphsError ? (
+				<p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400">
+					Couldn't load live graphs ({graphsError}). Showing sample data.
+				</p>
+			) : null}
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 				<table className="w-full text-left text-xs">
@@ -176,7 +260,7 @@ export default function Home() {
 						</tr>
 					</thead>
 					<tbody>
-						{sampleMuleNetworks.map((graph) => {
+						{muleNetworks.map((graph) => {
 							const selected = graph.id === selectedGraphId;
 							const status = graphStatuses[graph.id] ?? "Pending";
 							return (
@@ -292,7 +376,7 @@ export default function Home() {
 
 					<h2 className="mb-2 text-xl font-semibold">Transaction Details</h2>
 					<div className="overflow-x-auto text-sm">
-						<table className="w-full min-w-[720px] border-collapse">
+						<table className="w-full min-w-[960px] border-collapse">
 							<thead>
 								<tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
 									<th className="px-2 py-1.5 font-semibold">Transaction ID</th>
@@ -300,7 +384,13 @@ export default function Home() {
 									<th className="px-2 py-1.5 font-semibold">Sender</th>
 									<th className="px-2 py-1.5 font-semibold">Receiver</th>
 									<th className="px-2 py-1.5 font-semibold">Amount</th>
+									<th className="px-2 py-1.5 font-semibold">Currency</th>
 									<th className="px-2 py-1.5 font-semibold">Transaction Format</th>
+									<th className="px-2 py-1.5 font-semibold">Hours From Start</th>
+									<th className="px-2 py-1.5 font-semibold">Cross-Bank</th>
+									<th className="px-2 py-1.5 font-semibold">Cross-Currency</th>
+									<th className="px-2 py-1.5 font-semibold">Self-Transfer</th>
+									<th className="px-2 py-1.5 font-semibold">Fraud Risk</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -323,7 +413,25 @@ export default function Home() {
 											{formatAmount(tx.amount)}
 										</td>
 										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{tx.currency ?? "—"}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
 											{tx.payment_format}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatHours(tx.hours_from_start)}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatBoolean(tx.is_cross_bank)}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatBoolean(tx.is_cross_currency)}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatBoolean(tx.is_self_transfer)}
+										</td>
+										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+											{formatRiskScore(tx.fraud_risk_score)}
 										</td>
 									</tr>
 								))}

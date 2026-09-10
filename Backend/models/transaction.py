@@ -105,6 +105,7 @@ class Transaction(SQLModel, table=True):
             "is_cross_bank": int(self.isCrossBank),
             "is_cross_currency": int(self.isCrossCurrency),
             "is_self_transfer": int(self.isSelfTransfer),
+            "is_laundering": int(self.isLaundering),
         }
 
 
@@ -113,17 +114,18 @@ class TransactionRead(SQLModel):
 
     transactionId: str
     amountPaid: float
-    amountReceived: float
     currencyPaid: str
-    currencyReceived: str
     paymentFormat: str
     timestamp: str
-    isNight: bool
-    isWeekend: bool
     hoursFromStart: float
     isCrossBank: bool
     isCrossCurrency: bool
     isSelfTransfer: bool
+    # 0.0-1.0 fraud probability. Placeholder until real ML scoring exists --
+    # just mirrors isLaundering (0.0 or 1.0) for now, per
+    # Transaction.edge_attrs()'s "is_laundering". float (not int) so a real
+    # continuous score (e.g. 0.6995) drops in later without a type change.
+    fraudRiskScore: float = 0.0
     sender: Account
     receiver: Account
 
@@ -145,6 +147,7 @@ class TransactionRead(SQLModel):
             isCrossBank=tx.isCrossBank,
             isCrossCurrency=tx.isCrossCurrency,
             isSelfTransfer=tx.isSelfTransfer,
+            fraudRiskScore=float(tx.isLaundering),
             sender=sender,
             receiver=receiver,
         )
