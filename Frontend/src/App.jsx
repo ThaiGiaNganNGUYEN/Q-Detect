@@ -33,12 +33,10 @@ export default function App() {
 
     return (
         <>
-            {/* 2️⃣ replaced: was `if (!isAuthenticated)` */}
             <UnauthenticatedTemplate>
                 {view === "#register" ? <Register /> : <LogPageMsal />}
             </UnauthenticatedTemplate>
 
-            {/* 2️⃣ + 3️⃣: signed-in world */}
             <AuthenticatedTemplate>
                 <SignedInRouter view={view} />
             </AuthenticatedTemplate>
@@ -46,13 +44,10 @@ export default function App() {
     );
 }
 
-// 3️⃣ unchanged — routing logic, extracted for clarity
 function SignedInRouter({ view }) {
     if (view === "#home" || view === "#dashboard" || view === "#settings") {
         return <Home />;
     }
-    // Signed in but on #login/#register/unknown → normalize the URL.
-    // Now safe to do properly: this component only mounts when authenticated.
     useEffect(() => {
         window.location.hash = "#dashboard";
     }, []);

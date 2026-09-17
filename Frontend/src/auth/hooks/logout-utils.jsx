@@ -17,7 +17,7 @@ export function useLogout() {
   const logoutLocalOnly = () => {
     instance.logoutRedirect({
       account: instance.getActiveAccount(),
-      onRedirectNavigate: () => false,
+      onRedirectNavigate: () => true,
     });
   };
 

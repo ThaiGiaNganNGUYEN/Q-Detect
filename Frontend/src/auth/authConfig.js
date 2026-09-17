@@ -64,3 +64,8 @@ export const loginRequest = {
 //     scopes: ["openid", "profile"],
 //     loginHint: "example@domain.net"
 // };
+export const apiTokenRequest = {
+  scopes: [
+    `api://${import.meta.env.VITE_QDETECT_API_CLIENT_ID}/access_as_user`,
+  ],
+};
