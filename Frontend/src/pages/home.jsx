@@ -10,6 +10,8 @@ import { toRawClusterList } from "../data/adaptBackendCluster";
 import { adaptClustersResponse, sampleMuleNetworks } from "../data/sampleMuleNetworks";
 import Settings from "./settings";
 
+import { useLogout } from "../auth/hooks/logout-utils";
+
 function formatAmount(amount) {
 	return Number(amount).toLocaleString("en-US", {
 		minimumFractionDigits: 0,
@@ -235,7 +237,7 @@ export default function Home() {
 			}));
 		});
 	};
-
+	const { logout, isBusy } = useLogout();
 	const sidebar = (
 		<div className="flex h-full flex-col">
 			<div className="flex items-center gap-2 px-3 pt-5 pb-3">
@@ -327,19 +329,24 @@ export default function Home() {
 										Settings
 									</button>
 								</li>
-								<li>
-									<a
-										href="#login"
-										className="flex w-full items-center gap-2 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => {
-											setNavMenuOpen(false);
-											logout();
-										}}
-									>
-										<DoorIcon />
-										Sign out
-									</a>
-								</li>
+									<li>
+										<a
+											href="#login"
+											//className="flex w-full items-center gap-2 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+											><button
+												type="button"
+												disabled={isBusy}
+												onClick={() => {
+												setNavMenuOpen(false);
+												logout();
+												}}
+												className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+											>
+											<DoorIcon />
+											{isBusy ? "Signing out…" : "Sign out"}
+										</button>
+										</a>
+									</li>
 							</ul>
 						</>
 					) : null}
