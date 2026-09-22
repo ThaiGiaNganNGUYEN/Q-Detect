@@ -5,7 +5,18 @@ app = FastAPI()
 
 @app.get("/")
 async def home():
+    ## Opens login page
     return {"message":"Hello World!"}
+
+@app.get("/login")
+async def login():
+    ## Checks Credentials, if login credentials are correct, redirect to dashboard page
+    return {"message":"Login page"}
+
+@app.get("/dashboard")
+async def dashboard():
+    ## Display dashboard content
+    return {"message":"Dashboard page"}
 
 
 print("Hello World!")

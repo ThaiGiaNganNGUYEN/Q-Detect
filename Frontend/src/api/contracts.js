@@ -9,6 +9,12 @@
  * - PATCH /auth/me
  * - POST /auth/change-password
  * - PATCH /graphs/:graphId/status
+ * (served by Backend/routers/cluster_router.py -- api/clusters.js calls these)
+ * - GET  /api/graph
+ * - GET  /api/graph/cluster/:clusterId
+ * - GET  /api/clusters
+ * - GET  /api/clusters/:clusterId
+ * - GET  /api/accounts/:accountId/cluster
  *
  * Client-only fields (never sent):
  * - register retype password
@@ -68,6 +74,64 @@
  * @property {number} status
  * @property {string} message
  * @property {unknown} [details]
+ *
+ * ---- Graph / cluster data classes -----------------------------------
+ * Mirror Backend/models/{account,transaction,graph,cluster}.py field-for-
+ * field, so a change on either side is easy to spot as a shape mismatch.
+ *
+ * @typedef {Object} Account
+ * @property {string} accountId
+ * @property {string} bank
+ * @property {string} accountNumber
+ *
+ * @typedef {Object} TransactionRead
+ * @property {string} transactionId
+ * @property {number} amountPaid
+ * @property {string} currencyPaid
+ * @property {string} paymentFormat
+ * @property {string} timestamp
+ * @property {number} hoursFromStart
+ * @property {boolean} isCrossBank
+ * @property {boolean} isCrossCurrency
+ * @property {boolean} isSelfTransfer
+ * @property {number} fraudRiskScore 0.0-1.0 fraud probability. Placeholder -- currently just mirrors isLaundering (0.0/1.0) until real ML scoring exists.
+ * @property {Account} sender
+ * @property {Account} receiver
+ *
+ * @typedef {Object} Cluster
+ * @property {number} clusterId
+ * @property {number} numAccounts
+ * @property {number} numTransactions
+ * @property {number} riskScore 0-100, % of transactions flagged by fraudRiskScore
+ * @property {TransactionRead[]} transactions
+ *
+ * @typedef {Object} ClusterListResponse
+ * @property {number} totalClusters
+ * @property {Cluster[]} clusters
+ *
+ * @typedef {Object} GraphNode
+ * @property {string} id
+ * @property {string} bank
+ * @property {string} accountNumber
+ *
+ * @typedef {Object} GraphEdge
+ * @property {string} id
+ * @property {string} source
+ * @property {string} target
+ * @property {number} amount
+ * @property {string} currency
+ * @property {string} paymentFormat
+ * @property {string} timestamp
+ * @property {number} hoursFromStart
+ * @property {boolean} isCrossBank
+ * @property {boolean} isCrossCurrency
+ * @property {boolean} isSelfTransfer
+ *
+ * @typedef {Object} GraphResponse
+ * @property {number} numNodes
+ * @property {number} numEdges
+ * @property {GraphNode[]} nodes
+ * @property {GraphEdge[]} edges
  */
 
 export {};
