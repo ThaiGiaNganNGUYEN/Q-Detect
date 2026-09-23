@@ -15,6 +15,10 @@ dependencies = [
     "ruff>=0.16.0",
     "sqlmodel>=0.0.39",
     "networkx>=3.6.1",
+    "polars>=1.44.2",
+    "torch>=2.14.0",
+    "torch-geometric>=2.8.0.post1",
+    "scikit-learn==1.6.1",
 ]
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 """ from routers.transactions import router as transactions_router """
 from routers.cluster_router import router as cluster_router
+from routers import backup_model
 
 app = FastAPI()
 
@@ -17,6 +18,7 @@ app.add_middleware(
 
 """ app.include_router(transactions_router) """
 app.include_router(cluster_router)
+app.include_router(backup_model.router, prefix="/api", tags=["predictions"])
 
 @app.get("/")
 async def home():
