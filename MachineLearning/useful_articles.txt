@@ -2,3 +2,34 @@ https://medium.com/@anirudhsekar2008/quantum-accelerated-graph-neural-networks-a
 
 https://graphsandnetworks.com/the-cora-dataset/
 
+
+(most useful)
+https://arxiv.org/abs/2508.17630
+Ning et al., Quantum Graph Attention Network (VQC → attention weights)
+
+https://arxiv.org/abs/2509.11390
+Faria et al., Quantum Graph Attention Networks
+
+https://arxiv.org/abs/1710.10903
+Veličković et al., Graph Attention Networks (classical GAT)
+
+https://arxiv.org/abs/1706.02216
+Hamilton et al., GraphSAGE (neighbour / fanout sampling)
+
+https://arxiv.org/abs/1909.12264
+Verdon et al., Quantum Graph Neural Networks
+
+https://arxiv.org/abs/1704.01212
+Gilmer et al., Neural Message Passing for Quantum Chemistry
+
+https://medium.com/@anirudhsekar2008/quantum-accelerated-graph-neural-networks-a-hybrid-approach-using-pennylane-and-pytorch-geometric-1cdaa7b08168
+Sekar, hybrid PennyLane + PyG tutorial (Cora)
+
+https://arxiv.org/abs/2309.01127
+Inui et al., Financial Fraud Detection using Quantum Graph Neural Networks
+
+https://ink.library.smu.edu.sg/cgi/viewcontent.cgi?article=12043&context=sis_research
+QCTGNN, fraud detection (classical GNN + VQC feature map)
+
+https://arxiv.org/abs/2512.03696
+Quantum Topological Graph Neural Networks (fraud graphs, sampling)

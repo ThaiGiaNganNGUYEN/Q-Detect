@@ -248,6 +248,8 @@ def make_qgnn(
             self.q_layer = QuantumLayer()
             self.to_qubits = nn.Linear(hidden_dim * 2 + edge_attr_dim, n_qubits)
             self.att = nn.Linear(n_qubits, 1)
+            # classical attention on every subgraph edge; VQC scores are added on a capped subset
+            self.gat_att = nn.Linear(hidden_dim * 2 + edge_attr_dim, 1)
             self.convs = nn.ModuleList(
                 [QuantumWeightedConv(hidden_dim) for _ in fanouts]
             )
@@ -257,17 +259,18 @@ def make_qgnn(
             if edge_index.size(1) == 0:
                 return edge_index.new_zeros(0)
             src, dst = edge_index[0], edge_index[1]
-            angles = math.pi * torch.tanh(
-                self.to_qubits(torch.cat([x[src], x[dst], edge_attr], dim=-1))
-            )
+            pair = torch.cat([x[src], x[dst], edge_attr], dim=-1)
+            logits = F.leaky_relu(self.gat_att(pair).squeeze(-1), 0.2)
+            angles = math.pi * torch.tanh(self.to_qubits(pair))
             n = angles.size(0)
             if n > self.max_q_edges:
                 keep = torch.randperm(n, device=angles.device)[: self.max_q_edges]
-                q_scores = self.att(self.q_layer(angles[keep])).squeeze(-1)
-                logits = torch.full((n,), -1e9, device=angles.device, dtype=angles.dtype)
-                logits[keep] = F.leaky_relu(q_scores, 0.2)
+                q_logits = F.leaky_relu(self.att(self.q_layer(angles[keep])).squeeze(-1), 0.2)
+                logits = logits.clone()
+                logits[keep] = logits[keep] + q_logits
             else:
-                logits = F.leaky_relu(self.att(self.q_layer(angles)).squeeze(-1), 0.2)
+                q_logits = F.leaky_relu(self.att(self.q_layer(angles)).squeeze(-1), 0.2)
+                logits = logits + q_logits
             return softmax(logits, dst)
 
         def forward(self, x, mp_edge_index, mp_edge_attr, edge_index, edge_attr, edge_batch, mp_ptr, mp_eids):
