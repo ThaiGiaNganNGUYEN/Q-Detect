@@ -52,8 +52,17 @@ export const msalConfig = {
  * For more information about OIDC scopes, visit: 
  * https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-permissions-and-consent#openid-connect-scopes
  */
+const apiClientId = String(import.meta.env.VITE_QDETECT_API_CLIENT_ID ?? "").trim();
+export const apiScope = apiClientId
+    ? `api://${apiClientId}/access_as_user`
+    : null;
+
+/**
+ * Ask for the API scope at login so Entra can mint (and cache) the access token.
+ * openid / profile / email are still added by MSAL automatically.
+ */
 export const loginRequest = {
-    scopes: [],
+    scopes: apiScope ? [apiScope] : [],
 };
 
 /**
@@ -65,7 +74,5 @@ export const loginRequest = {
 //     loginHint: "example@domain.net"
 // };
 export const apiTokenRequest = {
-  scopes: [
-    `api://${import.meta.env.VITE_QDETECT_API_CLIENT_ID}/access_as_user`,
-  ],
+    scopes: apiScope ? [apiScope] : [],
 };

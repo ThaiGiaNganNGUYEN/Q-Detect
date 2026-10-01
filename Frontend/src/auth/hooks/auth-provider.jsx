@@ -3,25 +3,22 @@ import { PublicClientApplication, EventType } from '@azure/msal-browser';
 import { msalConfig } from '../authConfig';
 
 /**
- * MSAL should be instantiated outside of the component tree to prevent it from being re-instantiated on re-renders.
- * For more, visit: https://github.com/AzureAD/microsoft-authentication-library-for-js/blob/dev/lib/msal-react/docs/getting-started.md
+ * One PublicClientApplication for the whole app. Module scope, not inside
+ * the component — a new instance on every render would drop the token cache.
  */
-export const AuthProvider = ({ children }) => { 
-    const msalInstance = new PublicClientApplication(msalConfig);
-    // Default to using the first account if no account is active on page load
-    if (!msalInstance.getActiveAccount() && msalInstance.getAllAccounts().length > 0) {
-        // Account selection logic is app dependent. Adjust as needed for different use cases.
-        msalInstance.setActiveAccount(msalInstance.getAllAccounts()[0]);
+export const msalInstance = new PublicClientApplication(msalConfig);
+
+if (!msalInstance.getActiveAccount() && msalInstance.getAllAccounts().length > 0) {
+    msalInstance.setActiveAccount(msalInstance.getAllAccounts()[0]);
+}
+
+msalInstance.addEventCallback((event) => {
+    if (event.eventType === EventType.LOGIN_SUCCESS && event.payload.account) {
+        msalInstance.setActiveAccount(event.payload.account);
     }
+});
 
-    // Listen for sign-in event and set active account
-    msalInstance.addEventCallback((event) => {
-        if (event.eventType === EventType.LOGIN_SUCCESS && event.payload.account) {
-            const account = event.payload.account;
-            msalInstance.setActiveAccount(account);
-        }
-    });
-
+export const AuthProvider = ({ children }) => {
     return <MsalProvider instance={msalInstance}>
                 {children}
             </MsalProvider>;

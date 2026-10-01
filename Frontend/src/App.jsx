@@ -8,6 +8,7 @@ import { useIsAuthenticated } from "@azure/msal-react"; // 🟦 Microsoft
 import LogPageMsal from "./pages/loginPageMsal";
 import Register from "./pages/register";
 import Home from "./pages/home";
+import { getAccessToken } from "./auth/getAccessToken";
 
 
 export default function App() {
@@ -38,10 +39,28 @@ export default function App() {
             </UnauthenticatedTemplate>
 
             <AuthenticatedTemplate>
+                <WarmAccessToken />
                 <SignedInRouter view={view} />
             </AuthenticatedTemplate>
         </>
     );
+}
+
+function WarmAccessToken() {
+    useEffect(() => {
+        getAccessToken()
+            .then((token) => {
+                if (!import.meta.env.DEV || !token) return;
+                const payload = token.split(".")[1];
+                const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+                const claims = JSON.parse(json);
+                console.info("API JWT ready", { aud: claims.aud, scp: claims.scp, exp: claims.exp });
+            })
+            .catch((error) => {
+                console.error("API JWT failed", error.message || error);
+            });
+    }, []);
+    return null;
 }
 
 function SignedInRouter({ view }) {
