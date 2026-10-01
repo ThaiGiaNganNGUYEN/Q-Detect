@@ -6,6 +6,7 @@ so it can be queried, joined, and cached exactly like any other table
 in your Postgres backend -- not just a response shape.
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlmodel import Field, Relationship, SQLModel
@@ -24,6 +25,12 @@ class Account(SQLModel, table=True):
     accountId: str = Field(primary_key=True)     # e.g. "1004287C8_070"
     bank: str = Field(index=True)                  # e.g. "070"
     accountNumber: str                              # e.g. "1004287C8"
+
+    # Earliest/latest transaction timestamp this account appears in. NOT NULL
+    # in the DB (always set by services/cache_store.py); None in Python only
+    # so Account.from_id() still works for API response objects.
+    firstSeen: Optional[datetime] = Field(default=None, nullable=False)
+    lastSeen: Optional[datetime] = Field(default=None, nullable=False, index=True)
 
     sentTransactions: List["Transaction"] = Relationship(
         back_populates="sender",

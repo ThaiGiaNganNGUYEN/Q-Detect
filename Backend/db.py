@@ -1,22 +1,38 @@
 import os
 
 from dotenv import load_dotenv
-from sqlmodel import create_engine
+from sqlmodel import Session, create_engine
 
 load_dotenv()
 
-DATABASE_URL = os.environ["DATABASE_URL"]  # postgresql+psycopg://...
-PSYCOPG_DSN = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
-
-_engine = create_engine(DATABASE_URL, echo=False)
+STAGING_DATABASE_URL = os.environ["STAGING_DATABASE_URL"]  # postgresql+psycopg://...
+CACHE_DATABASE_URL = os.environ["CACHE_DATABASE_URL"]  # postgresql+psycopg://...
 
 
-def get_engine():
-    return _engine
+def _to_psycopg_dsn(url: str) -> str:
+    return url.replace("postgresql+psycopg://", "postgresql://")
 
 
-def get_session():
-    from sqlmodel import Session
+STAGING_PSYCOPG_DSN = _to_psycopg_dsn(STAGING_DATABASE_URL)
+CACHE_PSYCOPG_DSN = _to_psycopg_dsn(CACHE_DATABASE_URL)
 
-    with Session(_engine) as session:
+_staging_engine = create_engine(STAGING_DATABASE_URL, echo=False)
+_cache_engine = create_engine(CACHE_DATABASE_URL, echo=False)
+
+
+def get_staging_engine():
+    return _staging_engine
+
+
+def get_cache_engine():
+    return _cache_engine
+
+
+def get_staging_session():
+    with Session(_staging_engine) as session:
+        yield session
+
+
+def get_cache_session():
+    with Session(_cache_engine) as session:
         yield session
