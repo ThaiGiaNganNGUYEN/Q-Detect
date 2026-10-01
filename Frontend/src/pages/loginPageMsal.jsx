@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
+import { EventType } from "@azure/msal-browser";
 import { loginRequest } from "../auth/authConfig";
 import qDetectLogo from "../assets/qdetect-logo.png";
 
 export default function LogPageMsal() {
-  const { instance, inProgress } = useMsal();
+  const { instance, inProgress, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [loginError, setLoginError] = useState(null);
 
@@ -15,10 +16,22 @@ export default function LogPageMsal() {
     }
   }, [isAuthenticated]);
 
-  // Debug: shows in console whether an account is actually stored
   useEffect(() => {
-    console.log("ACCOUNTS:", instance.getAllAccounts());
-  }, [instance, isAuthenticated]);
+    console.log("ACCOUNTS:", accounts, instance.getAllAccounts());
+  }, [instance, accounts, isAuthenticated]);
+
+  useEffect(() => {
+    const id = instance.addEventCallback((event) => {
+      if (event.eventType === EventType.LOGIN_FAILURE) {
+        const message =
+          event.error?.errorMessage || event.error?.message || "Sign-in failed.";
+        setLoginError(message);
+      }
+    });
+    return () => {
+      if (id) instance.removeEventCallback(id);
+    };
+  }, [instance]);
 
   const handleLogin = () => {
     setLoginError(null);

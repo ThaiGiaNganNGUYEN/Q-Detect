@@ -64,11 +64,10 @@ function WarmAccessToken() {
 }
 
 function SignedInRouter({ view }) {
-    if (view === "#home" || view === "#dashboard" || view === "#settings") {
-        return <Home />;
-    }
     useEffect(() => {
-        window.location.hash = "#dashboard";
-    }, []);
+        if (view !== "#home" && view !== "#dashboard" && view !== "#settings") {
+            window.location.hash = "#dashboard";
+        }
+    }, [view]);
     return <Home />;
 }

@@ -58,11 +58,11 @@ export const apiScope = apiClientId
     : null;
 
 /**
- * Ask for the API scope at login so Entra can mint (and cache) the access token.
- * openid / profile / email are still added by MSAL automatically.
+ * Identity only. The API JWT is requested later by getAccessToken / apiTokenRequest.
+ * Asking for the API scope here makes login fail if that permission is not consented yet.
  */
 export const loginRequest = {
-    scopes: apiScope ? [apiScope] : [],
+    scopes: ["openid", "profile"],
 };
 
 /**
