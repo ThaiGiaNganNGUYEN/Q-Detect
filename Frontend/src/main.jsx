@@ -8,7 +8,9 @@ async function bootstrap() {
     try {
         await initializeMsal();
     } catch (error) {
-        console.error("MSAL redirect failed:", error);
+        const text = error?.errorMessage || error?.message || String(error);
+        sessionStorage.setItem("qdetect.apiTokenError", text);
+        console.error("MSAL redirect failed:", text);
     }
 
     ReactDOM.createRoot(document.getElementById("root")).render(

@@ -62,7 +62,7 @@ export const apiScope = apiClientId
  * Asking for the API scope here makes login fail if that permission is not consented yet.
  */
 export const loginRequest = {
-    scopes: ["openid", "profile"],
+    scopes: apiScope ? [apiScope] : [],
 };
 
 /**

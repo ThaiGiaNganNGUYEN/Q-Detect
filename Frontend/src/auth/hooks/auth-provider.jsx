@@ -9,8 +9,20 @@ import { msalConfig } from '../authConfig';
 export const msalInstance = new PublicClientApplication(msalConfig);
 
 msalInstance.addEventCallback((event) => {
-    if (event.eventType === EventType.LOGIN_SUCCESS && event.payload.account) {
+    if (
+        (event.eventType === EventType.LOGIN_SUCCESS ||
+            event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) &&
+        event.payload?.account
+    ) {
         msalInstance.setActiveAccount(event.payload.account);
+    }
+
+    if (
+        event.eventType === EventType.LOGIN_FAILURE ||
+        event.eventType === EventType.ACQUIRE_TOKEN_FAILURE
+    ) {
+        const text = event.error?.errorMessage || event.error?.message;
+        if (text) sessionStorage.setItem("qdetect.apiTokenError", text);
     }
 });
 

@@ -47,19 +47,31 @@ export default function App() {
 }
 
 function WarmAccessToken() {
+    const { inProgress } = useMsal();
+
     useEffect(() => {
+        if (inProgress !== InteractionStatus.None) return;
+
+        let cancelled = false;
         getAccessToken()
             .then((token) => {
-                if (!import.meta.env.DEV || !token) return;
+                if (cancelled || !import.meta.env.DEV || !token) return;
                 const payload = token.split(".")[1];
                 const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
                 const claims = JSON.parse(json);
                 console.info("API JWT ready", { aud: claims.aud, scp: claims.scp, exp: claims.exp });
             })
             .catch((error) => {
-                console.error("API JWT failed", error.message || error);
+                if (!cancelled) {
+                    console.error("API JWT failed", error.errorCode || "", error.message || error);
+                }
             });
-    }, []);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [inProgress]);
+
     return null;
 }
 
