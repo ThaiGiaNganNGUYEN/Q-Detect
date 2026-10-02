@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import cashOutIcon from "../assets/cash-out-icon.png";
+import { getErrorMessage, isApiConfigured } from "../api/client";
+import { getGraphNote, submitGraphNote } from "../api/notes";
 
 function ZoomInIcon({ className = "h-5 w-5" }) {
 	return (
@@ -1051,7 +1053,6 @@ export default function MuleNetworkGraph({
 	graphName,
 	nodes,
 	links,
-	risk,
 	isDark = false,
 	className = "",
 	transactions = [],
@@ -1059,6 +1060,11 @@ export default function MuleNetworkGraph({
 	onSelect,
 }) {
 	const [detailedOpen, setDetailedOpen] = useState(false);
+	const [notesOpen, setNotesOpen] = useState(false);
+	const [note, setNote] = useState("");
+	const [noteError, setNoteError] = useState("");
+	const [noteSubmitting, setNoteSubmitting] = useState(false);
+	const noteRef = useRef(null);
 
 	useEffect(() => {
 		if (!detailedOpen) {
@@ -1078,14 +1084,111 @@ export default function MuleNetworkGraph({
 		};
 	}, [detailedOpen]);
 
+	useEffect(() => {
+		if (!isApiConfigured()) {
+			return undefined;
+		}
+
+		let cancelled = false;
+		getGraphNote(graphId)
+			.then((saved) => {
+				if (!cancelled && saved?.note != null) {
+					setNote(saved.note);
+				}
+			})
+			.catch(() => {
+				// Keep the notepad usable if the saved note cannot be loaded.
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [graphId]);
+
+	useEffect(() => {
+		if (notesOpen) {
+			noteRef.current?.focus();
+		}
+	}, [notesOpen]);
+
+	const submitNotes = async () => {
+		setNoteError("");
+		if (!isApiConfigured()) {
+			setNoteError("API is not configured. Set VITE_API_BASE_URL.");
+			return;
+		}
+
+		setNoteSubmitting(true);
+		try {
+			const saved = await submitGraphNote(graphId, note);
+			if (saved?.note != null) {
+				setNote(saved.note);
+			}
+			setNotesOpen(false);
+		} catch (error) {
+			setNoteError(getErrorMessage(error));
+		} finally {
+			setNoteSubmitting(false);
+		}
+	};
+
 	return (
 		<>
 			<div
 				className={`relative h-[360px] w-full overflow-hidden rounded border border-zinc-300 md:h-[520px] dark:border-zinc-700 ${className}`}
 			>
-				<div className="absolute top-3 right-3 z-10 rounded border border-zinc-300 bg-white/95 px-2.5 py-1 text-xs font-semibold text-zinc-800 shadow dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-100">
-					Risk Score: {risk}%
-				</div>
+				<button
+					type="button"
+					className="absolute top-3 right-3 z-10 rounded-md bg-[#86BC24] px-3 py-1.5 text-xs font-semibold text-[#0F0B0B] shadow hover:bg-[#6B9A1C]"
+					onClick={() => {
+						setNoteError("");
+						setNotesOpen(true);
+					}}
+				>
+					Add Notes
+				</button>
+				{notesOpen ? (
+					<div
+						role="dialog"
+						aria-label="Add notes"
+						className="absolute inset-y-0 right-0 z-20 flex w-[min(100%,20rem)] flex-col border-l border-zinc-300 bg-white shadow-xl dark:border-zinc-600 dark:bg-zinc-900"
+						onMouseDown={(event) => event.stopPropagation()}
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="flex items-center justify-end border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+							<button
+								type="button"
+								className="flex h-8 w-8 items-center justify-center rounded-full text-2xl leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+								aria-label="Close notes"
+								onClick={() => setNotesOpen(false)}
+							>
+								×
+							</button>
+						</div>
+						<textarea
+							ref={noteRef}
+							value={note}
+							onChange={(event) => setNote(event.target.value)}
+							placeholder="Add a note..."
+							className="min-h-0 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
+						/>
+						{noteError ? (
+							<p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400" role="alert">
+								{noteError}
+							</p>
+						) : null}
+						<div className="flex justify-center border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
+							<button
+								type="button"
+								className="rounded-md bg-[#86BC24] px-5 py-2 text-sm font-semibold text-[#0F0B0B] shadow hover:bg-[#6B9A1C] disabled:opacity-60"
+								disabled={noteSubmitting}
+								onClick={submitNotes}
+							>
+								{noteSubmitting ? "Submitting…" : "Submit"}
+							</button>
+						</div>
+					</div>
+				) : null}
 				<GraphCanvas
 					graphId={graphId}
 					nodes={nodes}

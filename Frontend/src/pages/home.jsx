@@ -382,7 +382,6 @@ export default function Home() {
 						graphName={selectedGraph.name}
 						nodes={selectedGraph.nodes}
 						links={selectedGraph.links}
-						risk={selectedGraph.risk}
 						isDark={isDark}
 						className="my-4"
 						transactions={selectedGraph.transactions}
