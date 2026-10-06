@@ -27,3 +27,4 @@ class User(SQLModel, table = True):
     userId: str = Field(primary_key=True)
     username: str = Field(index= True)
     password: str = Field(index= True )
+
