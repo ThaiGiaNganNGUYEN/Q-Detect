@@ -8,6 +8,7 @@ import { useIsAuthenticated } from "@azure/msal-react"; // 🟦 Microsoft
 import LogPageMsal from "./pages/loginPageMsal";
 import Register from "./pages/register";
 import Home from "./pages/home";
+import { getAccessToken } from "./auth/getAccessToken";
 
 
 export default function App() {
@@ -38,18 +39,47 @@ export default function App() {
             </UnauthenticatedTemplate>
 
             <AuthenticatedTemplate>
+                <WarmAccessToken />
                 <SignedInRouter view={view} />
             </AuthenticatedTemplate>
         </>
     );
 }
 
-function SignedInRouter({ view }) {
-    if (view === "#home" || view === "#dashboard" || view === "#settings") {
-        return <Home />;
-    }
+function WarmAccessToken() {
+    const { inProgress } = useMsal();
+
     useEffect(() => {
-        window.location.hash = "#dashboard";
-    }, []);
+        if (inProgress !== InteractionStatus.None) return;
+
+        let cancelled = false;
+        getAccessToken()
+            .then((token) => {
+                if (cancelled || !import.meta.env.DEV || !token) return;
+                const payload = token.split(".")[1];
+                const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+                const claims = JSON.parse(json);
+                console.info("API JWT ready", { aud: claims.aud, scp: claims.scp, exp: claims.exp });
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error("API JWT failed", error.errorCode || "", error.message || error);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [inProgress]);
+
+    return null;
+}
+
+function SignedInRouter({ view }) {
+    useEffect(() => {
+        if (view !== "#home" && view !== "#dashboard" && view !== "#settings") {
+            window.location.hash = "#dashboard";
+        }
+    }, [view]);
     return <Home />;
 }

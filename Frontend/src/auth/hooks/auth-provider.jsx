@@ -3,30 +3,54 @@ import { PublicClientApplication, EventType } from '@azure/msal-browser';
 import { msalConfig } from '../authConfig';
 
 /**
- * MSAL should be instantiated outside of the component tree to prevent it from being re-instantiated on re-renders.
- * For more, visit: https://github.com/AzureAD/microsoft-authentication-library-for-js/blob/dev/lib/msal-react/docs/getting-started.md
+ * One PublicClientApplication for the whole app. Module scope, not inside
+ * the component — a new instance on every render would drop the token cache.
  */
-export const AuthProvider = ({ children }) => { 
-    const msalInstance = new PublicClientApplication(msalConfig);
-    // Default to using the first account if no account is active on page load
-    if (!msalInstance.getActiveAccount() && msalInstance.getAllAccounts().length > 0) {
-        // Account selection logic is app dependent. Adjust as needed for different use cases.
-        msalInstance.setActiveAccount(msalInstance.getAllAccounts()[0]);
+export const msalInstance = new PublicClientApplication(msalConfig);
+
+msalInstance.addEventCallback((event) => {
+    if (
+        (event.eventType === EventType.LOGIN_SUCCESS ||
+            event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) &&
+        event.payload?.account
+    ) {
+        msalInstance.setActiveAccount(event.payload.account);
     }
 
-    // Listen for sign-in event and set active account
-    msalInstance.addEventCallback((event) => {
-        if (event.eventType === EventType.LOGIN_SUCCESS && event.payload.account) {
-            const account = event.payload.account;
-            msalInstance.setActiveAccount(account);
-        }
-    });
+    if (
+        event.eventType === EventType.LOGIN_FAILURE ||
+        event.eventType === EventType.ACQUIRE_TOKEN_FAILURE
+    ) {
+        const text = event.error?.errorMessage || event.error?.message;
+        if (text) sessionStorage.setItem("qdetect.apiTokenError", text);
+    }
+});
 
+/**
+ * MSAL v3+ must initialize() before getAllAccounts / handleRedirectPromise.
+ * Entra returns to /redirect with ?code= — this call exchanges it and stores the account.
+ */
+export async function initializeMsal() {
+    await msalInstance.initialize();
+
+    const result = await msalInstance.handleRedirectPromise();
+    if (result?.account) {
+        msalInstance.setActiveAccount(result.account);
+    } else if (!msalInstance.getActiveAccount()) {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+            msalInstance.setActiveAccount(accounts[0]);
+        }
+    }
+
+    if (window.location.pathname === '/redirect') {
+        const hash = msalInstance.getActiveAccount() ? '#dashboard' : '#login';
+        window.history.replaceState({}, document.title, `/${hash}`);
+    }
+}
+
+export const AuthProvider = ({ children }) => {
     return <MsalProvider instance={msalInstance}>
                 {children}
             </MsalProvider>;
-}
-
-export function useAuthProvider() {
-    return { AuthProvider };
 }
