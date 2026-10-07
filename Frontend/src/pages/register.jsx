@@ -1,5 +1,5 @@
 import { useState } from "react";
-import qDetectLogo from "../assets/qdetect-logo.png";
+import { AuthShell } from "../components/Brand";
 import { register } from "../api/auth";
 import { getErrorMessage, isApiConfigured } from "../api/client";
 
@@ -43,92 +43,51 @@ export default function Register() {
 	};
 
 	return (
-		<main className="min-h-screen bg-white px-4 py-10 text-center text-[#262626]">
-			<div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[420px] flex-col items-center justify-center gap-8">
-				<div className="w-full">
-					<img
-						alt="Q-Detect logo"
-						src={qDetectLogo}
-						className="mx-auto w-36 h-auto"
+		<AuthShell title="Create your account" subtitle="Set up access to the Q-Detect investigation workspace.">
+			<form className="flex flex-col gap-4" onSubmit={onSubmit}>
+				<label className="field-label" htmlFor="email">
+					Email address
+					<input id="email" name="email" type="email" placeholder="name@company.com" className="field-input" />
+				</label>
+
+				<label className="field-label" htmlFor="username">
+					Username
+					<input id="username" name="username" type="text" placeholder="Username" className="field-input" />
+				</label>
+
+				<label className="field-label" htmlFor="password">
+					Password
+					<input id="password" name="password" type="password" placeholder="Password" className="field-input" />
+				</label>
+
+				<label className="field-label" htmlFor="retype-password">
+					Retype password
+					<input
+						id="retype-password"
+						name="retype-password"
+						type="password"
+						placeholder="Retype password"
+						className="field-input"
 					/>
-				</div>
+				</label>
 
-				<h1
-					className="whitespace-nowrap text-[64px] leading-none text-black"
-					style={{ fontFamily: '"Inter", sans-serif' }}
-				>
-					Q-Detect
-				</h1>
+				{error ? (
+					<p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+						{error}
+					</p>
+				) : null}
 
-				<section className="w-full rounded-[12px] border border-[#E3E3E3] bg-white px-3 py-3">
-					<form className="flex flex-col gap-3" onSubmit={onSubmit}>
-						<label className="sr-only" htmlFor="email">
-							Email Address
-						</label>
-						<input
-							id="email"
-							name="email"
-							type="email"
-							placeholder="Email Address"
-							className="h-7 w-full rounded-[5px] border border-[#E2E2E2] px-3 text-[11px] text-[#222] outline-none placeholder:text-[#B8B8B8] focus:border-[#B7B7B7]"
-						/>
+				<button type="submit" disabled={pending} className="btn-primary h-11 w-full">
+					{pending ? "Registering…" : "Register"}
+				</button>
 
-						<label className="sr-only" htmlFor="username">
-							Username
-						</label>
-						<input
-							id="username"
-							name="username"
-							type="text"
-							placeholder="Username"
-							className="h-7 w-full rounded-[5px] border border-[#E2E2E2] px-3 text-[11px] text-[#222] outline-none placeholder:text-[#B8B8B8] focus:border-[#B7B7B7]"
-						/>
-
-						<label className="sr-only" htmlFor="password">
-							Password
-						</label>
-						<input
-							id="password"
-							name="password"
-							type="password"
-							placeholder="Password"
-							className="h-7 w-full rounded-[5px] border border-[#E2E2E2] px-3 text-[11px] text-[#222] outline-none placeholder:text-[#B8B8B8] focus:border-[#B7B7B7]"
-						/>
-
-						<label className="sr-only" htmlFor="retype-password">
-							Retype Password
-						</label>
-						<input
-							id="retype-password"
-							name="retype-password"
-							type="password"
-							placeholder="Retype Password"
-							className="h-7 w-full rounded-[5px] border border-[#E2E2E2] px-3 text-[11px] text-[#222] outline-none placeholder:text-[#B8B8B8] focus:border-[#B7B7B7]"
-						/>
-
-						{error ? (
-							<p className="text-left text-[11px] text-red-600" role="alert">
-								{error}
-							</p>
-						) : null}
-
-						<button
-							type="submit"
-							disabled={pending}
-							className="h-6 w-full rounded-[4px] bg-[#2F2F2F] text-[11px] font-normal text-white transition-colors hover:bg-[#1f1f1f] disabled:opacity-60"
-						>
-							{pending ? "Registering…" : "Register"}
-						</button>
-
-						<a
-							href="#login"
-							className="text-[11px] leading-none text-[#333333] underline underline-offset-2"
-						>
-							Already have an account? Login Here
-						</a>
-					</form>
-				</section>
-			</div>
-		</main>
+				<p className="text-center text-sm text-zinc-500">
+					Already have an account?{" "}
+					<a href="#login" className="font-semibold text-brand-700 hover:underline">
+						Log in here
+					</a>
+				</p>
+			</form>
+		</AuthShell>
 	);
 }

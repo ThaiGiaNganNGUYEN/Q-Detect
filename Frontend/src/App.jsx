@@ -26,8 +26,12 @@ export default function App() {
     // nothing. You want "Loading…", not a blank screen.
     if (inProgress === InteractionStatus.Startup || inProgress === InteractionStatus.HandleRedirect) {
         return (
-            <main className="min-h-screen flex items-center justify-center">
-                <p className="text-sm text-[#555555]">Loading…</p>
+            <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white">
+                <span
+                    className="h-9 w-9 animate-spin rounded-full border-[3px] border-zinc-200 border-t-brand"
+                    aria-hidden="true"
+                />
+                <p className="text-sm font-medium text-zinc-500">Loading Q-Detect…</p>
             </main>
         );
     }
