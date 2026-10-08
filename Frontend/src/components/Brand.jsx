@@ -22,7 +22,7 @@ export function AuthShell({ title, subtitle, children }) {
 			/>
 
 			<section className="relative flex flex-1 flex-col items-center justify-center px-6 py-12">
-				<Wordmark className="mb-10 text-5xl text-white" logoClassName="h-20 w-20" />
+				<Wordmark className="mb-10 gap-4 text-5xl text-white" logoClassName="h-32 w-32" />
 
 				<div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl sm:p-10">
 					<h1 className="text-3xl font-bold tracking-tight">{title}</h1>

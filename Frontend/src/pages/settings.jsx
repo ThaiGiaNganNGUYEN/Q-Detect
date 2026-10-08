@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { changePassword, logout, updateAccount } from "../api/auth";
+import { logout, updateAccount } from "../api/auth";
 import { getErrorMessage, getStoredUser, isApiConfigured } from "../api/client";
 
 const SECTIONS = [
@@ -13,10 +13,6 @@ function AccountPanel() {
 	const [accountMessage, setAccountMessage] = useState("");
 	const [accountError, setAccountError] = useState("");
 	const [accountPending, setAccountPending] = useState(false);
-	const [passwordMessage, setPasswordMessage] = useState("");
-	const [passwordError, setPasswordError] = useState("");
-	const [passwordPending, setPasswordPending] = useState(false);
-
 	const onSaveAccount = async (event) => {
 		event.preventDefault();
 		setAccountMessage("");
@@ -39,43 +35,6 @@ function AccountPanel() {
 			setAccountError(getErrorMessage(err));
 		} finally {
 			setAccountPending(false);
-		}
-	};
-
-	const onChangePassword = async (event) => {
-		event.preventDefault();
-		setPasswordMessage("");
-		setPasswordError("");
-
-		const form = new FormData(event.currentTarget);
-		const currentPassword = String(form.get("currentPassword") ?? "");
-		const newPassword = String(form.get("newPassword") ?? "");
-		const confirmPassword = String(form.get("confirmPassword") ?? "");
-
-		if (newPassword !== confirmPassword) {
-			setPasswordError("New passwords do not match.");
-			return;
-		}
-
-		if (!newPassword) {
-			setPasswordError("Enter a new password.");
-			return;
-		}
-
-		if (!isApiConfigured()) {
-			return;
-		}
-
-		setPasswordPending(true);
-		const formEl = event.currentTarget;
-		try {
-			await changePassword({ currentPassword, newPassword });
-			setPasswordMessage("Password updated.");
-			formEl.reset();
-		} catch (err) {
-			setPasswordError(getErrorMessage(err));
-		} finally {
-			setPasswordPending(false);
 		}
 	};
 
@@ -131,58 +90,6 @@ function AccountPanel() {
 						className="btn-primary"
 					>
 						{accountPending ? "Saving…" : "Save changes"}
-					</button>
-				</form>
-			</section>
-
-			<section>
-				<h2 className="mb-1 text-lg font-bold tracking-tight">Change password</h2>
-				<p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-					Choose a strong password to keep your fraud investigation workspace secure.
-				</p>
-				<form
-					className="card space-y-4 p-5"
-					onSubmit={onChangePassword}
-				>
-					<label className="field-label block text-left">
-						Current password
-						<input
-							type="password"
-							name="currentPassword"
-							defaultValue="abc123"
-							className="field-input mt-1.5"
-						/>
-					</label>
-					<label className="field-label block text-left">
-						New password
-						<input
-							type="password"
-							name="newPassword"
-							className="field-input mt-1.5"
-						/>
-					</label>
-					<label className="field-label block text-left">
-						Confirm new password
-						<input
-							type="password"
-							name="confirmPassword"
-							className="field-input mt-1.5"
-						/>
-					</label>
-					{passwordError ? (
-						<p className="text-sm text-red-600 dark:text-red-400" role="alert">
-							{passwordError}
-						</p>
-					) : null}
-					{passwordMessage ? (
-						<p className="text-sm text-emerald-600 dark:text-emerald-400">{passwordMessage}</p>
-					) : null}
-					<button
-						type="submit"
-						disabled={passwordPending}
-						className="btn-primary"
-					>
-						{passwordPending ? "Updating…" : "Update password"}
 					</button>
 				</form>
 			</section>
@@ -352,7 +259,7 @@ export default function Settings({ open, onClose }) {
 				<aside className="flex w-44 shrink-0 flex-col bg-ink text-white sm:w-60">
 					<div className="border-b-2 border-brand px-4 py-4">
 						<h2 id="settings-title" className="text-lg font-bold tracking-tight">
-							Settings<span className="brand-dot ml-0.5" aria-hidden="true" />
+							Settings
 						</h2>
 						<p className="mt-0.5 text-xs text-zinc-400">Manage your workspace</p>
 					</div>

@@ -68,8 +68,4 @@
 	.field-input {
 		@apply mt-1.5 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm font-normal tracking-normal text-ink outline-none transition-shadow placeholder:text-zinc-400 focus:border-brand focus:ring-4 focus:ring-brand/20 dark:border-ink-600 dark:bg-ink-800 dark:text-zinc-100;
 	}
-
-	.brand-dot {
-		@apply inline-block h-[0.32em] w-[0.32em] rounded-full bg-brand align-baseline;
-	}
 }
