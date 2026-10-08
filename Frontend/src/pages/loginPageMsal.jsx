@@ -62,6 +62,11 @@ export default function LogPageMsal() {
             {loginError}
           </p>
         )}
+
+        <p className="flex items-center gap-2 text-xs text-zinc-500">
+          <span className="h-2 w-2 rounded-full bg-brand" aria-hidden="true" />
+          Secured with Microsoft Entra ID single sign-on
+        </p>
       </div>
     </AuthShell>
   );
