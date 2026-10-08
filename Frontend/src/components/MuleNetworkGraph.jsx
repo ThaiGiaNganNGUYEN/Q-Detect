@@ -1,6 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import cashOutIcon from "../assets/cash-out-icon.png";
+import { getErrorMessage, isApiConfigured } from "../api/client";
+import { getGraphNote, submitGraphNote } from "../api/notes";
+import { exportSvgAsPng, toFileSlug } from "../utils/download";
+
+function ExpandIcon({ className = "h-5 w-5" }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="M4 14v6h6" />
+			<path d="M20 10V4h-6" />
+		</svg>
+	);
+}
+
+function DownloadIcon({ className = "h-4 w-4" }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="M12 4v11" />
+			<path d="M7 10l5 5 5-5" />
+			<path d="M5 20h14" />
+		</svg>
+	);
+}
 
 function ZoomInIcon({ className = "h-5 w-5" }) {
 	return (
@@ -22,7 +44,7 @@ function ZoomOutIcon({ className = "h-5 w-5" }) {
 	);
 }
 
-function appendUserIcon(selection, { radius = 44, fill = "#111", iconFill = "#fff" } = {}) {
+function appendUserIcon(selection, { radius = 44, fill = "#0f0b0b", iconFill = "#fff" } = {}) {
 	selection.append("circle").attr("r", radius).attr("fill", fill).attr("stroke", "none");
 	const s = radius / 20;
 	selection
@@ -386,8 +408,10 @@ function EdgeTransactionPopup({ tx, x, y, onClose, isDark }) {
 		<div
 			role="dialog"
 			aria-label={`Transaction ${tx.id} details`}
-			className={`absolute z-20 w-72 max-h-[min(340px,calc(100%-16px))] overflow-auto rounded-lg border px-3 py-2.5 text-xs shadow-xl ${
-				isDark ? "border-zinc-600 bg-zinc-900 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
+			className={`absolute z-20 w-72 max-h-[min(340px,calc(100%-16px))] overflow-auto rounded-lg border border-t-[3px] px-3.5 py-3 text-xs shadow-xl ${
+				isDark
+					? "border-ink-600 border-t-brand bg-ink-800 text-zinc-100"
+					: "border-zinc-200 border-t-brand bg-white text-ink"
 			}`}
 			style={{ left: x, top: y }}
 			onMouseDown={(event) => event.stopPropagation()}
@@ -397,7 +421,7 @@ function EdgeTransactionPopup({ tx, x, y, onClose, isDark }) {
 				<p className="font-semibold">Transaction details</p>
 				<button
 					type="button"
-					className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+					className="flex h-6 w-6 items-center justify-center rounded-md text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-ink-700"
 					aria-label="Close transaction details"
 					onClick={onClose}
 				>
@@ -427,8 +451,10 @@ function NodeAccountPopup({ node, transactionCount, x, y, onClose, isDark }) {
 		<div
 			role="dialog"
 			aria-label={`Account ${node.account_number ?? node.id} details`}
-			className={`absolute z-20 w-72 max-h-[min(240px,calc(100%-16px))] overflow-auto rounded-lg border px-3 py-2.5 text-xs shadow-xl ${
-				isDark ? "border-zinc-600 bg-zinc-900 text-zinc-100" : "border-zinc-200 bg-white text-zinc-900"
+			className={`absolute z-20 w-72 max-h-[min(240px,calc(100%-16px))] overflow-auto rounded-lg border border-t-[3px] px-3.5 py-3 text-xs shadow-xl ${
+				isDark
+					? "border-ink-600 border-t-brand bg-ink-800 text-zinc-100"
+					: "border-zinc-200 border-t-brand bg-white text-ink"
 			}`}
 			style={{ left: x, top: y }}
 			onMouseDown={(event) => event.stopPropagation()}
@@ -438,7 +464,7 @@ function NodeAccountPopup({ node, transactionCount, x, y, onClose, isDark }) {
 				<p className="font-semibold">Account details</p>
 				<button
 					type="button"
-					className="flex h-6 w-6 items-center justify-center rounded text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+					className="flex h-6 w-6 items-center justify-center rounded-md text-base leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-ink-700"
 					aria-label="Close account details"
 					onClick={onClose}
 				>
@@ -474,11 +500,11 @@ function renderStaticGraph({
 	const width = container.clientWidth || (detailed ? 960 : 640);
 	const height = container.clientHeight || (detailed ? 640 : 380);
 	const linkStroke = isDark ? "#a1a1aa" : "#9a9a9a";
-	const highlightStroke = isDark ? "#38bdf8" : "#0284c7";
-	const labelFill = isDark ? "#f4f4f5" : "#18181b";
-	const cashOutLabel = "#16a34a";
-	const bgFill = isDark ? "#18181b" : "#ececec";
-	const userFill = "#111111";
+	const highlightStroke = isDark ? "#86bc24" : "#6f9e1a";
+	const labelFill = isDark ? "#f4f4f5" : "#0f0b0b";
+	const cashOutLabel = "#26890d";
+	const bgFill = isDark ? "#171212" : "#ffffff";
+	const userFill = isDark ? "#3d3636" : "#0f0b0b";
 	const markerId = `arrow-${graphId}-${detailed ? "detail" : "simple"}`;
 	const highlightMarkerId = `${markerId}-hi`;
 
@@ -1015,17 +1041,18 @@ function GraphCanvas({
 				{showExpand ? (
 					<button
 						type="button"
-						className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-300 bg-white/95 text-zinc-800 shadow hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-100 dark:hover:bg-zinc-800"
-						aria-label="Zoom in to detailed graph"
+						className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/95 text-ink shadow-sm backdrop-blur transition-colors hover:border-brand hover:text-brand-700 dark:border-ink-600 dark:bg-ink-800/95 dark:text-zinc-100 dark:hover:border-brand dark:hover:text-brand"
+						aria-label="Open detailed graph"
+						title="Open detailed graph"
 						onClick={onExpand}
 					>
-						<ZoomInIcon />
+						<ExpandIcon />
 					</button>
 				) : (
 					<>
 						<button
 							type="button"
-							className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-300 bg-white/95 text-zinc-800 shadow hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-100 dark:hover:bg-zinc-800"
+							className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/95 text-ink shadow-sm backdrop-blur transition-colors hover:border-brand hover:text-brand-700 dark:border-ink-600 dark:bg-ink-800/95 dark:text-zinc-100 dark:hover:border-brand dark:hover:text-brand"
 							aria-label="Zoom in"
 							onClick={() => zoomApiRef.current?.zoomIn()}
 						>
@@ -1033,7 +1060,7 @@ function GraphCanvas({
 						</button>
 						<button
 							type="button"
-							className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-300 bg-white/95 text-zinc-800 shadow hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-100 dark:hover:bg-zinc-800"
+							className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white/95 text-ink shadow-sm backdrop-blur transition-colors hover:border-brand hover:text-brand-700 dark:border-ink-600 dark:bg-ink-800/95 dark:text-zinc-100 dark:hover:border-brand dark:hover:text-brand"
 							aria-label="Zoom out"
 							onClick={() => zoomApiRef.current?.zoomOut()}
 						>
@@ -1051,7 +1078,6 @@ export default function MuleNetworkGraph({
 	graphName,
 	nodes,
 	links,
-	risk,
 	isDark = false,
 	className = "",
 	transactions = [],
@@ -1059,6 +1085,33 @@ export default function MuleNetworkGraph({
 	onSelect,
 }) {
 	const [detailedOpen, setDetailedOpen] = useState(false);
+	const [notesOpen, setNotesOpen] = useState(false);
+	const [note, setNote] = useState("");
+	const [noteError, setNoteError] = useState("");
+	const [noteSubmitting, setNoteSubmitting] = useState(false);
+	const noteRef = useRef(null);
+	const detailedGraphRef = useRef(null);
+	const [exporting, setExporting] = useState(false);
+	const [exportError, setExportError] = useState("");
+
+	const exportDetailedPng = async () => {
+		const svg = detailedGraphRef.current?.querySelector("svg");
+		if (!svg) {
+			return;
+		}
+		setExportError("");
+		setExporting(true);
+		try {
+			await exportSvgAsPng(svg, `${toFileSlug(graphName ?? `graph-${graphId}`)}-detailed-graph.png`, {
+				background: isDark ? "#171212" : "#ffffff",
+				fitSelector: "g.viewport",
+			});
+		} catch (error) {
+			setExportError(getErrorMessage(error));
+		} finally {
+			setExporting(false);
+		}
+	};
 
 	useEffect(() => {
 		if (!detailedOpen) {
@@ -1078,14 +1131,121 @@ export default function MuleNetworkGraph({
 		};
 	}, [detailedOpen]);
 
+	useEffect(() => {
+		if (!isApiConfigured()) {
+			return undefined;
+		}
+
+		let cancelled = false;
+		getGraphNote(graphId)
+			.then((saved) => {
+				if (!cancelled && saved?.note != null) {
+					setNote(saved.note);
+				}
+			})
+			.catch(() => {
+				// Keep the notepad usable if the saved note cannot be loaded.
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [graphId]);
+
+	useEffect(() => {
+		if (notesOpen) {
+			noteRef.current?.focus();
+		}
+	}, [notesOpen]);
+
+	const submitNotes = async () => {
+		setNoteError("");
+		if (!isApiConfigured()) {
+			setNoteError("API is not configured. Set VITE_API_BASE_URL.");
+			return;
+		}
+
+		setNoteSubmitting(true);
+		try {
+			const saved = await submitGraphNote(graphId, note);
+			if (saved?.note != null) {
+				setNote(saved.note);
+			}
+			setNotesOpen(false);
+		} catch (error) {
+			setNoteError(getErrorMessage(error));
+		} finally {
+			setNoteSubmitting(false);
+		}
+	};
+
 	return (
 		<>
 			<div
-				className={`relative h-[360px] w-full overflow-hidden rounded border border-zinc-300 md:h-[520px] dark:border-zinc-700 ${className}`}
+				className={`relative h-[380px] w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm md:h-[540px] dark:border-ink-700 dark:bg-ink-900 ${className}`}
 			>
-				<div className="absolute top-3 right-3 z-10 rounded border border-zinc-300 bg-white/95 px-2.5 py-1 text-xs font-semibold text-zinc-800 shadow dark:border-zinc-600 dark:bg-zinc-900/95 dark:text-zinc-100">
-					Risk Score: {risk}%
+				<div className="pointer-events-none absolute top-3 left-4 z-10">
+					<p className="text-sm font-bold">Network graph</p>
 				</div>
+				<button
+					type="button"
+					className="btn-primary absolute top-3 right-3 z-10 gap-1.5 px-3 py-1.5 text-xs shadow-sm"
+					onClick={() => {
+						setNoteError("");
+						setNotesOpen(true);
+					}}
+				>
+					<svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+						<path d="M13.6 2.6a2 2 0 0 1 2.8 2.8l-8.7 8.7-3.7.9.9-3.7 8.7-8.7zM3 17h14v1.5H3z" />
+					</svg>
+					Add Notes
+				</button>
+				{notesOpen ? (
+					<div
+						role="dialog"
+						aria-label="Add notes"
+						className="absolute inset-y-0 right-0 z-20 flex w-[min(100%,22rem)] flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-ink-600 dark:bg-ink-800"
+						onMouseDown={(event) => event.stopPropagation()}
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="flex items-center justify-between border-b-2 border-brand bg-ink px-4 py-2.5 text-white">
+							<div>
+								<p className="text-sm font-bold">Case notes</p>
+								<p className="text-[11px] text-zinc-400">{graphName ?? `Graph ${graphId}`}</p>
+							</div>
+							<button
+								type="button"
+								className="flex h-8 w-8 items-center justify-center rounded-lg text-2xl leading-none text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+								aria-label="Close notes"
+								onClick={() => setNotesOpen(false)}
+							>
+								×
+							</button>
+						</div>
+						<textarea
+							ref={noteRef}
+							value={note}
+							onChange={(event) => setNote(event.target.value)}
+							placeholder="Add a note..."
+							className="m-3 min-h-0 flex-1 resize-none rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-zinc-400 focus:border-brand focus:bg-white focus:ring-2 focus:ring-brand/30 dark:border-ink-600 dark:bg-ink-900 dark:text-zinc-100 dark:focus:bg-ink-900"
+						/>
+						{noteError ? (
+							<p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400" role="alert">
+								{noteError}
+							</p>
+						) : null}
+						<div className="flex justify-center border-t border-zinc-200 px-3 py-3 dark:border-ink-600">
+							<button
+								type="button"
+								className="btn-primary px-8"
+								disabled={noteSubmitting}
+								onClick={submitNotes}
+							>
+								{noteSubmitting ? "Submitting…" : "Submit"}
+							</button>
+						</div>
+					</div>
+				) : null}
 				<GraphCanvas
 					graphId={graphId}
 					nodes={nodes}
@@ -1107,7 +1267,7 @@ export default function MuleNetworkGraph({
 				<div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6">
 					<button
 						type="button"
-						className="absolute inset-0 bg-zinc-950/50 backdrop-blur-md"
+						className="absolute inset-0 bg-ink/60 backdrop-blur-sm"
 						aria-label="Close detailed graph"
 						onClick={() => setDetailedOpen(false)}
 					/>
@@ -1115,34 +1275,47 @@ export default function MuleNetworkGraph({
 						role="dialog"
 						aria-modal="true"
 						aria-label="Detailed mule network graph"
-						className="relative z-10 flex h-[min(90vh,860px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+						className="relative z-10 flex h-[min(90vh,860px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-ink-700 dark:bg-ink-900"
 					>
-						<div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-							<div>
-								<h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-									Detailed Graph · {graphName ?? `Graph ${graphId}`}
-								</h2>
-								<p className="text-xs text-zinc-500 dark:text-zinc-400">
-									Scroll to zoom · drag background to pan
-								</p>
+						<div className="flex items-center justify-between border-b-2 border-brand bg-ink px-5 py-3 text-white">
+							<h2 className="text-lg font-bold tracking-tight">
+								Detailed Graph · {graphName ?? `Graph ${graphId}`}
+							</h2>
+							<div className="flex items-center gap-2">
+								{exportError ? (
+									<p className="text-xs text-red-300" role="alert">
+										{exportError}
+									</p>
+								) : null}
+								<button
+									type="button"
+									className="btn-primary px-3 py-1.5"
+									disabled={exporting}
+									onClick={exportDetailedPng}
+								>
+									<DownloadIcon />
+									{exporting ? "Exporting…" : "Export PNG"}
+								</button>
+								<button
+									type="button"
+									className="flex h-10 w-10 items-center justify-center rounded-lg text-3xl leading-none text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+									aria-label="Close detailed graph"
+									onClick={() => setDetailedOpen(false)}
+								>
+									×
+								</button>
 							</div>
-							<button
-								type="button"
-								className="flex h-11 w-11 items-center justify-center rounded-full text-3xl leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-								aria-label="Close detailed graph"
-								onClick={() => setDetailedOpen(false)}
-							>
-								×
-							</button>
 						</div>
-						<GraphCanvas
-							graphId={graphId}
-							nodes={nodes}
-							links={links}
-							isDark={isDark}
-							detailed
-							className="min-h-0 flex-1"
-						/>
+						<div ref={detailedGraphRef} className="flex min-h-0 flex-1 flex-col">
+							<GraphCanvas
+								graphId={graphId}
+								nodes={nodes}
+								links={links}
+								isDark={isDark}
+								detailed
+								className="min-h-0 flex-1"
+							/>
+						</div>
 					</div>
 				</div>
 			) : null}

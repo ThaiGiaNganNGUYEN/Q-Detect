@@ -15,6 +15,9 @@
  * - GET  /api/clusters
  * - GET  /api/clusters/:clusterId
  * - GET  /api/accounts/:accountId/cluster
+ * (frontend contract for storing a graph note; api/notes.js calls these)
+ * - GET  /api/clusters/:clusterId/notes
+ * - POST /api/clusters/:clusterId/notes
  *
  * Client-only fields (never sent):
  * - register retype password
@@ -69,6 +72,13 @@
  * @typedef {Object} UpdateGraphStatusResponse
  * @property {string} id
  * @property {GraphStatus} status
+ *
+ * @typedef {Object} GraphNoteRequest
+ * @property {string} note
+ *
+ * @typedef {Object} GraphNote
+ * @property {string|number} clusterId
+ * @property {string} note
  *
  * @typedef {Object} ApiErrorShape
  * @property {number} status

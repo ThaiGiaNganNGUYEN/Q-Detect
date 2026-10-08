@@ -8,7 +8,9 @@ export function useLogout() {
   const logout = () => {
     instance.logoutRedirect({
       account: instance.getActiveAccount(),
-      postLogoutRedirectUri: "http://localhost:5173/",
+      postLogoutRedirectUri: "http://localhost:5173/login",
+    }).catch((error) => {
+      console.error("Logout failed:", error);
     });
   };
 
@@ -18,6 +20,8 @@ export function useLogout() {
     instance.logoutRedirect({
       account: instance.getActiveAccount(),
       onRedirectNavigate: () => true,
+    }).catch((error) => {
+      console.error("Local logout failed:", error);
     });
   };
 

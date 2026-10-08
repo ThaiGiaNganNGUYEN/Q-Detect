@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import qDetectLogo from "../assets/qdetect-logo.png";
+import { Wordmark } from "../components/Brand";
 import MarkGraphStatus from "../components/MarkGraphStatus";
 import MuleNetworkGraph from "../components/MuleNetworkGraph";
 import { logout } from "../api/auth";
@@ -8,6 +8,7 @@ import { getClusters } from "../api/clusters";
 import { updateGraphStatus } from "../api/graphs";
 import { toRawClusterList } from "../data/adaptBackendCluster";
 import { adaptClustersResponse, sampleMuleNetworks } from "../data/sampleMuleNetworks";
+import { downloadBlob, toCsv, toFileSlug } from "../utils/download";
 import Settings from "./settings";
 
 import { useLogout } from "../auth/hooks/logout-utils";
@@ -42,28 +43,151 @@ function formatRiskScore(score) {
 	return `${Math.round(score * 100)}%`;
 }
 
-function statusClass(status, selected) {
-	if (selected) {
-		return "";
+const RISK_TONES = {
+	high: {
+		label: "High",
+		bar: "bg-red-500",
+		chip: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30",
+	},
+	medium: {
+		label: "Medium",
+		bar: "bg-amber-500",
+		chip: "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30",
+	},
+	low: {
+		label: "Low",
+		bar: "bg-emerald-500",
+		chip: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30",
+	},
+};
+
+function riskTone(percent) {
+	if (percent >= 80) {
+		return RISK_TONES.high;
 	}
-	if (status === "Safe") {
-		return "text-emerald-600 dark:text-emerald-400";
+	if (percent >= 50) {
+		return RISK_TONES.medium;
 	}
-	if (status === "Fraud") {
-		return "text-red-600 dark:text-red-400";
-	}
-	return "text-zinc-500 dark:text-zinc-400";
+	return RISK_TONES.low;
+}
+
+const STATUS_STYLES = {
+	Safe: {
+		chip: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30",
+		dot: "bg-emerald-500",
+	},
+	Fraud: {
+		chip: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30",
+		dot: "bg-red-500",
+	},
+	Pending: {
+		chip: "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-ink-700 dark:text-zinc-300 dark:ring-ink-600",
+		dot: "bg-zinc-400",
+	},
+};
+
+function StatusBadge({ status }) {
+	const style = STATUS_STYLES[status] ?? STATUS_STYLES.Pending;
+	return (
+		<span
+			className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${style.chip}`}
+		>
+			<span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden="true" />
+			{status}
+		</span>
+	);
+}
+
+function RiskChip({ percent }) {
+	const tone = riskTone(percent);
+	return (
+		<span
+			className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset ${tone.chip}`}
+		>
+			{percent}%
+		</span>
+	);
+}
+
+const RING_STROKES = {
+	High: "stroke-red-500",
+	Medium: "stroke-amber-500",
+	Low: "stroke-emerald-500",
+};
+
+function RiskRing({ percent, size = 44, strokeWidth = 4, className = "", textClassName = "text-[11px]" }) {
+	const tone = riskTone(percent);
+	const radius = (size - strokeWidth) / 2;
+	const circumference = 2 * Math.PI * radius;
+	const clamped = Math.min(100, Math.max(0, Number(percent) || 0));
+	return (
+		<div
+			className={`relative inline-flex shrink-0 items-center justify-center ${className}`}
+			style={{ width: size, height: size }}
+			role="img"
+			aria-label={`Risk score ${percent}% (${tone.label})`}
+		>
+			<svg className="-rotate-90" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+				<circle
+					cx={size / 2}
+					cy={size / 2}
+					r={radius}
+					fill="none"
+					strokeWidth={strokeWidth}
+					className="stroke-zinc-200 dark:stroke-ink-700"
+				/>
+				<circle
+					cx={size / 2}
+					cy={size / 2}
+					r={radius}
+					fill="none"
+					strokeWidth={strokeWidth}
+					strokeLinecap="round"
+					strokeDasharray={circumference}
+					strokeDashoffset={circumference * (1 - clamped / 100)}
+					className={RING_STROKES[tone.label]}
+				/>
+			</svg>
+			<span className={`absolute font-bold tabular-nums ${textClassName}`}>{percent}%</span>
+		</div>
+	);
 }
 
 function HamburgerIcon({ className = "h-5 w-5" }) {
 	return (
-		<svg className={className} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-			<path
-				fillRule="evenodd"
-				d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"
-			/>
+		<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+			<path d="M4 7h16M4 12h16M4 17h16" />
 		</svg>
 	);
+}
+
+function DownloadIcon({ className = "h-4 w-4" }) {
+	return (
+		<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+			<path d="M12 4v11" />
+			<path d="M7 10l5 5 5-5" />
+			<path d="M5 20h14" />
+		</svg>
+	);
+}
+
+const CSV_COLUMNS = [
+	["Transaction ID", (tx) => tx.id],
+	["Timestamp", (tx) => tx.timestamp],
+	["Sender", (tx) => tx.fromLabel],
+	["Receiver", (tx) => tx.toLabel],
+	["Amount", (tx) => tx.amount],
+	["Currency", (tx) => tx.currency ?? ""],
+	["Transaction Format", (tx) => tx.payment_format],
+	["Hours From Start", (tx) => (typeof tx.hours_from_start === "number" ? tx.hours_from_start : "")],
+	["Cross-Bank", (tx) => csvBoolean(tx.is_cross_bank)],
+	["Cross-Currency", (tx) => csvBoolean(tx.is_cross_currency)],
+	["Self-Transfer", (tx) => csvBoolean(tx.is_self_transfer)],
+	["Fraud Risk", (tx) => (typeof tx.fraud_risk_score === "number" ? formatRiskScore(tx.fraud_risk_score) : "")],
+];
+
+function csvBoolean(value) {
+	return value === undefined || value === null ? "" : formatBoolean(value);
 }
 
 function CalendarIcon({ className = "h-4 w-4" }) {
@@ -238,143 +362,220 @@ export default function Home() {
 		});
 	};
 	const { logout, isBusy } = useLogout();
+	const cell = "border-b border-zinc-100 px-3 py-2.5 dark:border-ink-700";
+
+	const exportTransactionsCsv = () => {
+		const csv = toCsv(
+			CSV_COLUMNS.map(([heading]) => heading),
+			selectedGraph.transactions.map((tx) => CSV_COLUMNS.map(([, value]) => value(tx))),
+		);
+		downloadBlob(
+			new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }),
+			`${toFileSlug(selectedGraph.name)}-transactions.csv`,
+		);
+	};
+
 	const sidebar = (
 		<div className="flex h-full flex-col">
-			<div className="flex items-center gap-2 px-3 pt-5 pb-3">
-				<span className="text-2xl font-semibold tracking-wide">Dashboard</span>
+			<h2 className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 pt-5 pb-3 text-sm font-bold tracking-tight dark:border-ink-700">
+				<span>Graph</span>
 				{/* Shown only while the live /api/clusters fetch is in flight. */}
 				{graphsLoading ? (
-					<span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">Loading…</span>
-				) : null}
-			</div>
+					<span className="inline-flex items-center gap-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+						<span
+							className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-brand"
+							aria-hidden="true"
+						/>
+						Loading…
+					</span>
+				) : (
+					<span>Risk Score</span>
+				)}
+			</h2>
 
 			{/* Fetch failed -- muleNetworks already fell back to sampleMuleNetworks, this just says so. */}
 			{graphsError ? (
-				<p className="px-3 pb-2 text-xs text-red-600 dark:text-red-400">
+				<p className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
 					Couldn't load live graphs ({graphsError}). Showing sample data.
 				</p>
 			) : null}
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-				<table className="w-full text-left text-xs">
-					<thead>
-						<tr className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-							<th className="px-2 py-2 font-medium">Graph</th>
-							<th className="px-2 py-2 font-medium">Risk %</th>
-							<th className="px-2 py-2 font-medium">Status</th>
-						</tr>
-					</thead>
-					<tbody>
-						{muleNetworks.map((graph) => {
-							const selected = graph.id === selectedGraphId;
-							const status = graphStatuses[graph.id] ?? "Pending";
-							return (
-								<tr
-									key={graph.id}
-									className={`cursor-pointer border-t border-zinc-200/70 dark:border-zinc-700/70 ${
-										selected
-											? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-											: "text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-zinc-800"
-									}`}
-									onClick={() => {
-										setSelectedGraphId(graph.id);
-										setGraphSelection(null);
-									}}
-								>
-									<td className="px-2 py-2 font-medium">{graph.name}</td>
-									<td className="px-2 py-2">{graph.risk}%</td>
-									<td className={`px-2 py-2 ${statusClass(status, selected)}`}>{status}</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
-			</div>
+			<ul className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+				{muleNetworks.map((graph) => {
+					const selected = graph.id === selectedGraphId;
+					const status = graphStatuses[graph.id] ?? "Pending";
+					return (
+						<li key={graph.id}>
+							<button
+								type="button"
+								aria-current={selected ? "true" : undefined}
+								className={`group w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
+									selected
+										? "border-brand bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand)] dark:border-brand/60 dark:bg-brand/10"
+										: "border-transparent hover:border-zinc-200 hover:bg-white dark:hover:border-ink-700 dark:hover:bg-ink-800"
+								}`}
+								onClick={() => {
+									setSelectedGraphId(graph.id);
+									setGraphSelection(null);
+								}}
+							>
+								<div className="flex items-center justify-between gap-3">
+									<div className="min-w-0">
+										<span className="block truncate text-sm font-semibold">{graph.name}</span>
+										<span className="mt-1.5 block">
+											<StatusBadge status={status} />
+										</span>
+									</div>
+									<RiskRing percent={graph.risk} />
+								</div>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 
 	return (
-		<div className={`min-h-screen ${isDark ? "bg-zinc-950 text-zinc-100" : "bg-white text-zinc-900"}`}>
-			<header className="sticky top-0 z-40 flex items-center bg-zinc-900 px-2 py-1 text-white shadow">
-				<div className="relative">
-					<button
-						type="button"
-						className="inline-flex items-center justify-center px-3 py-3 text-white hover:bg-zinc-800"
-						aria-label="Open menu"
-						aria-expanded={navMenuOpen}
-						onClick={() => setNavMenuOpen((open) => !open)}
-					>
-						<HamburgerIcon className="h-6 w-6" />
-					</button>
+		<div className={`min-h-screen ${isDark ? "bg-ink text-zinc-100" : "bg-zinc-50 text-ink"}`}>
+			<header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b-2 border-brand bg-ink px-4 text-white sm:px-6">
+				<a href="#dashboard" className="flex items-center rounded-md">
+					<Wordmark
+						className="text-xl text-white"
+						logoClassName="h-9 w-9"
+					/>
+				</a>
+				<div className="ml-auto flex items-center gap-1">
+					<div className="relative">
+						<button
+							type="button"
+							className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+							aria-expanded={themeMenuOpen}
+							aria-label={`Toggle theme (${theme})`}
+							title="Theme"
+							onClick={() => setThemeMenuOpen((open) => !open)}
+						>
+							{theme === "light" ? <SunIcon /> : null}
+							{theme === "dark" ? <MoonIcon /> : null}
+							{theme === "auto" ? <HalfCircleIcon /> : null}
+						</button>
+						{themeMenuOpen ? (
+							<>
+								<button
+									type="button"
+									className="fixed inset-0 z-40 cursor-default"
+									aria-label="Close theme menu"
+									onClick={() => setThemeMenuOpen(false)}
+								/>
+								<ul className="absolute top-full right-0 z-50 mt-2 w-40 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 text-sm text-ink shadow-xl dark:border-ink-700 dark:bg-ink-800 dark:text-zinc-100">
+									{[
+										{ value: "light", label: "Light", icon: <SunIcon /> },
+										{ value: "dark", label: "Dark", icon: <MoonIcon /> },
+										{ value: "auto", label: "Auto", icon: <HalfCircleIcon /> },
+									].map((option) => (
+										<li key={option.value}>
+											<button
+												type="button"
+												className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${
+													theme === option.value
+														? "bg-brand-50 font-semibold text-brand-800 dark:bg-brand/15 dark:text-brand"
+														: "hover:bg-zinc-100 dark:hover:bg-ink-700"
+												}`}
+												onClick={() => {
+													setTheme(option.value);
+													setThemeMenuOpen(false);
+												}}
+											>
+												{option.icon}
+												{option.label}
+											</button>
+										</li>
+									))}
+								</ul>
+							</>
+						) : null}
+					</div>
 
-					{navMenuOpen ? (
-						<>
-							<button
-								type="button"
-								className="fixed inset-0 z-40 cursor-default"
-								aria-label="Close menu"
-								onClick={() => setNavMenuOpen(false)}
-							/>
-							<ul className="absolute top-full left-0 z-50 mt-1 w-44 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm text-zinc-800 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-								<li>
-									<button
-										type="button"
-										className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-										onClick={() => {
-											setNavMenuOpen(false);
-											setSettingsOpen(true);
-										}}
-									>
-										<GearIcon />
-										Settings
-									</button>
-								</li>
+					<div className="relative">
+						<button
+							type="button"
+							className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+							aria-label="Open menu"
+							aria-expanded={navMenuOpen}
+							onClick={() => setNavMenuOpen((open) => !open)}
+						>
+							<HamburgerIcon className="h-6 w-6" />
+						</button>
+						{navMenuOpen ? (
+							<>
+								<button
+									type="button"
+									className="fixed inset-0 z-40 cursor-default"
+									aria-label="Close menu"
+									onClick={() => setNavMenuOpen(false)}
+								/>
+								<ul className="absolute top-full right-0 z-50 mt-2 w-48 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 text-sm text-ink shadow-xl dark:border-ink-700 dark:bg-ink-800 dark:text-zinc-100">
 									<li>
-										<a
-											href="#login"
-											//className="flex w-full items-center gap-2 px-3 py-2.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-											><button
+										<button
+											type="button"
+											className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-ink-700"
+											onClick={() => {
+												setNavMenuOpen(false);
+												setSettingsOpen(true);
+											}}
+										>
+											<GearIcon />
+											Settings
+										</button>
+									</li>
+									<li>
+										<a href="#login" className="block rounded-md">
+											<button
 												type="button"
 												disabled={isBusy}
 												onClick={() => {
-												setNavMenuOpen(false);
-												logout();
+													setNavMenuOpen(false);
+													logout();
 												}}
-												className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+												className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
 											>
-											<DoorIcon />
-											{isBusy ? "Signing out…" : "Sign out"}
-										</button>
+												<DoorIcon />
+												{isBusy ? "Signing out…" : "Sign out"}
+											</button>
 										</a>
 									</li>
-							</ul>
-						</>
-					) : null}
+								</ul>
+							</>
+						) : null}
+					</div>
 				</div>
-
-				<a
-					href="#dashboard"
-					className="flex items-center gap-3 px-3 py-2 text-2xl font-semibold text-white"
-				>
-					<img src={qDetectLogo} alt="" className="h-10 w-10 rounded-full object-cover" />
-					Q-Detect
-				</a>
 			</header>
 
 			<div className="flex">
-				<aside className="sticky top-[64px] h-[calc(100vh-64px)] w-[42%] shrink-0 border-r border-zinc-200 bg-zinc-100 sm:w-1/3 lg:w-1/6 dark:border-zinc-800 dark:bg-zinc-900">
+				<aside className="sticky top-16 h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-zinc-200 bg-zinc-100/70 sm:w-72 lg:w-80 dark:border-ink-700 dark:bg-ink-900">
 					{sidebar}
 				</aside>
 
-				<main className="min-w-0 flex-1 px-3 py-3 sm:w-2/3 lg:w-5/6">
-					<div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
-						<h1 className="text-2xl font-semibold">Selected: {selectedGraph.name}</h1>
+				<main className="min-w-0 flex-1 space-y-5 p-4 sm:p-6">
+					<section className="card flex flex-wrap items-center justify-between gap-4 p-5">
+						<div className="flex min-w-0 items-center gap-4">
+							<RiskRing percent={selectedGraph.risk} size={64} strokeWidth={6} textClassName="text-sm" />
+							<div className="min-w-0">
+								<p className="text-xs font-semibold tracking-wider text-brand-700 uppercase dark:text-brand">
+									Selected case
+								</p>
+								<h1 className="mt-0.5 truncate text-2xl font-bold tracking-tight">{selectedGraph.name}</h1>
+								<div className="mt-1.5">
+									<StatusBadge status={selectedStatus} />
+								</div>
+							</div>
+						</div>
 						<MarkGraphStatus
 							status={selectedStatus}
 							onMarkSafe={() => markGraph("Safe")}
 							onMarkFraud={() => markGraph("Fraud")}
 						/>
-					</div>
+					</section>
 
 					<MuleNetworkGraph
 						key={selectedGraph.id}
@@ -382,31 +583,51 @@ export default function Home() {
 						graphName={selectedGraph.name}
 						nodes={selectedGraph.nodes}
 						links={selectedGraph.links}
-						risk={selectedGraph.risk}
 						isDark={isDark}
-						className="my-4"
+						className=""
 						transactions={selectedGraph.transactions}
 						selection={graphSelection}
 						onSelect={setGraphSelection}
 					/>
 
-					<h2 className="mb-2 text-xl font-semibold">Transaction Details</h2>
+					<section className="card overflow-hidden">
+						<div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-5 py-4 dark:border-ink-700">
+							<h2 className="text-base font-bold">Transaction details</h2>
+							<button
+								type="button"
+								className="btn-primary px-3 py-1.5"
+								disabled={selectedGraph.transactions.length === 0}
+								onClick={exportTransactionsCsv}
+							>
+								<DownloadIcon />
+								Export CSV
+							</button>
+						</div>
 					<div className="overflow-x-auto text-sm">
 						<table className="w-full min-w-[960px] border-collapse">
 							<thead>
-								<tr className="border-b border-zinc-300 text-left dark:border-zinc-700">
-									<th className="px-2 py-1.5 font-semibold">Transaction ID</th>
-									<th className="px-2 py-1.5 font-semibold">Timestamp</th>
-									<th className="px-2 py-1.5 font-semibold">Sender</th>
-									<th className="px-2 py-1.5 font-semibold">Receiver</th>
-									<th className="px-2 py-1.5 font-semibold">Amount</th>
-									<th className="px-2 py-1.5 font-semibold">Currency</th>
-									<th className="px-2 py-1.5 font-semibold">Transaction Format</th>
-									<th className="px-2 py-1.5 font-semibold">Hours From Start</th>
-									<th className="px-2 py-1.5 font-semibold">Cross-Bank</th>
-									<th className="px-2 py-1.5 font-semibold">Cross-Currency</th>
-									<th className="px-2 py-1.5 font-semibold">Self-Transfer</th>
-									<th className="px-2 py-1.5 font-semibold">Fraud Risk</th>
+								<tr className="bg-zinc-50 text-left text-[11px] tracking-wide text-zinc-500 uppercase dark:bg-ink-800 dark:text-zinc-400">
+									{[
+										"Transaction ID",
+										"Timestamp",
+										"Sender",
+										"Receiver",
+										"Amount",
+										"Currency",
+										"Transaction Format",
+										"Hours From Start",
+										"Cross-Bank",
+										"Cross-Currency",
+										"Self-Transfer",
+										"Fraud Risk",
+									].map((heading) => (
+										<th
+											key={heading}
+											className="border-b border-zinc-200 px-3 py-2.5 font-semibold whitespace-nowrap dark:border-ink-700"
+										>
+											{heading}
+										</th>
+									))}
 								</tr>
 							</thead>
 							<tbody>
@@ -422,12 +643,12 @@ export default function Home() {
 									<tr
 										key={tx.id}
 										data-tx-row={tx.id}
-										className={`cursor-pointer ${
+										className={`cursor-pointer transition-colors ${
 											selected || connectedToNode
-												? "bg-sky-100 ring-1 ring-inset ring-sky-400 dark:bg-sky-900/50 dark:ring-sky-400"
+												? "bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand)] dark:bg-brand/10"
 												: index % 2 === 0
-													? "bg-zinc-50 hover:bg-sky-50 dark:bg-zinc-900/60 dark:hover:bg-sky-950/40"
-													: "bg-white hover:bg-sky-50 dark:bg-zinc-950 dark:hover:bg-sky-950/40"
+													? "bg-white hover:bg-brand-50/60 dark:bg-ink-900 dark:hover:bg-brand/5"
+													: "bg-zinc-50/60 hover:bg-brand-50/60 dark:bg-ink-800/60 dark:hover:bg-brand/5"
 										}`}
 										onClick={() =>
 											setGraphSelection((current) =>
@@ -437,35 +658,27 @@ export default function Home() {
 											)
 										}
 									>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.id}</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 whitespace-nowrap dark:border-zinc-800">
+										<td className={`${cell} font-mono text-xs font-semibold`}>{tx.id}</td>
+										<td className={`${cell} whitespace-nowrap text-zinc-600 dark:text-zinc-300`}>
 											{tx.timestamp}
 										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.fromLabel}</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">{tx.toLabel}</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
+										<td className={`${cell} font-medium`}>{tx.fromLabel}</td>
+										<td className={`${cell} font-medium`}>{tx.toLabel}</td>
+										<td className={`${cell} text-right font-semibold tabular-nums`}>
 											{formatAmount(tx.amount)}
 										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{tx.currency ?? "—"}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{tx.payment_format}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{formatHours(tx.hours_from_start)}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{formatBoolean(tx.is_cross_bank)}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{formatBoolean(tx.is_cross_currency)}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{formatBoolean(tx.is_self_transfer)}
-										</td>
-										<td className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800">
-											{formatRiskScore(tx.fraud_risk_score)}
+										<td className={cell}>{tx.currency ?? "—"}</td>
+										<td className={cell}>{tx.payment_format}</td>
+										<td className={`${cell} tabular-nums`}>{formatHours(tx.hours_from_start)}</td>
+										<td className={cell}>{formatBoolean(tx.is_cross_bank)}</td>
+										<td className={cell}>{formatBoolean(tx.is_cross_currency)}</td>
+										<td className={cell}>{formatBoolean(tx.is_self_transfer)}</td>
+										<td className={cell}>
+											{typeof tx.fraud_risk_score === "number" && !Number.isNaN(tx.fraud_risk_score) ? (
+												<RiskChip percent={Math.round(tx.fraud_risk_score * 100)} />
+											) : (
+												formatRiskScore(tx.fraud_risk_score)
+											)}
 										</td>
 									</tr>
 									);
@@ -473,48 +686,8 @@ export default function Home() {
 							</tbody>
 						</table>
 					</div>
+					</section>
 				</main>
-			</div>
-
-			<div className="fixed right-4 bottom-4 z-50">
-				<div className="relative">
-					<button
-						type="button"
-						className="flex items-center gap-2 rounded-md bg-[#712cf9] px-3 py-2 text-sm font-semibold text-white shadow"
-						aria-expanded={themeMenuOpen}
-						aria-label={`Toggle theme (${theme})`}
-						onClick={() => setThemeMenuOpen((open) => !open)}
-					>
-						{theme === "light" ? <SunIcon /> : null}
-						{theme === "dark" ? <MoonIcon /> : null}
-						{theme === "auto" ? <HalfCircleIcon /> : null}
-					</button>
-					{themeMenuOpen ? (
-						<ul className="absolute right-0 bottom-full mb-2 w-36 overflow-hidden rounded-md border border-zinc-200 bg-white py-1 text-sm text-zinc-800 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-							{[
-								{ value: "light", label: "Light", icon: <SunIcon /> },
-								{ value: "dark", label: "Dark", icon: <MoonIcon /> },
-								{ value: "auto", label: "Auto", icon: <HalfCircleIcon /> },
-							].map((option) => (
-								<li key={option.value}>
-									<button
-										type="button"
-										className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-											theme === option.value ? "font-semibold" : ""
-										}`}
-										onClick={() => {
-											setTheme(option.value);
-											setThemeMenuOpen(false);
-										}}
-									>
-										{option.icon}
-										{option.label}
-									</button>
-								</li>
-							))}
-						</ul>
-					) : null}
-				</div>
 			</div>
 
 			<Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -1,3 +1,5 @@
+import { getAccessToken } from "../auth/getAccessToken";
+
 const TOKEN_KEY = "qdetect-token";
 const USER_KEY = "qdetect-user";
 
@@ -81,7 +83,7 @@ export async function apiRequest(path, { method = "GET", body, auth = true } = {
 		headers["Content-Type"] = "application/json";
 	}
 	if (auth) {
-		const token = getToken();
+		const token = (await getAccessToken()) ?? getToken();
 		if (token) {
 			headers.Authorization = `Bearer ${token}`;
 		}
