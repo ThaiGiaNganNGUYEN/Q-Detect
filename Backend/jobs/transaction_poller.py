@@ -1,6 +1,7 @@
 """Recurring job: pull the next batch of staging transactions, oldest first.
 
-Started by main.py when the FastAPI app starts. Every POLL_INTERVAL_SECONDS:
+Started via POST /api/util/jobs/start, or by main.py on app startup when
+AUTO_START_POLLER=true. Every POLL_INTERVAL_SECONDS:
     1. read this job's checkpoint (last processed staging_transaction.id)
     2. fetch the next BATCH_SIZE rows after it into a DataFrame
     3. process the batch
@@ -30,7 +31,7 @@ from sqlmodel import Session, SQLModel, text
 from db import get_staging_engine
 from models import IngestionCheckpoint, StagingTransaction
 from services.cache_store import clear_cache as clear_cache_db, write_scored_batch
-from services.transaction_scoring import get_decision_threshold, save_output, score_transactions
+from services.transaction_scoring import save_output, score_transactions
 
 JOB_NAME = "transaction_poller"
 BATCH_SIZE = 50_000
@@ -64,6 +65,9 @@ def fetch_batch(last_id: int) -> pd.DataFrame:
     )
 
 
+
+
+
 def process_batch(df: pd.DataFrame) -> None:
     first_id, last_id = int(df["id"].iloc[0]), int(df["id"].iloc[-1])
     result = score_transactions(df)
@@ -73,7 +77,7 @@ def process_batch(df: pd.DataFrame) -> None:
         f"[{JOB_NAME}] Scored {result['n_edges']:,} rows "
         f"(id {first_id}-{last_id}, "
         f"{df['timestamp'].iloc[0]} -> {df['timestamp'].iloc[-1]}): "
-        f"{sum(result['flagged']):,} flagged (>= {get_decision_threshold():.4f}); "
+        f"{sum(result['flagged']):,} flagged (>= {result['decision_threshold']:.4f}); "
         f"cached {transactions:,} transactions, {accounts:,} accounts; output -> {output_path}"
     )
 

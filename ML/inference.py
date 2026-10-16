@@ -1,11 +1,12 @@
-"""Backend inference for the IBM HI-Medium mule-hunter GraphSAGE.
+"""Inference for the IBM HI-Medium mule-hunter GraphSAGE.
 
-The backend sends a neighborhood of transactions (not one isolated edge).
-The GNN is 2-hop GraphSAGE, so surrounding accounts change the scores.
+Served over HTTP by service.py; the backend calls that instead of importing
+this module. Callers send a neighborhood of transactions (not one isolated
+edge). The GNN is 2-hop GraphSAGE, so surrounding accounts change the scores.
 
-    from mule_hunter_infer import load_infer_bundle, infer_transactions
+    from inference import load_infer_bundle, infer_transactions
 
-    bundle = load_infer_bundle("ibm_hi_medium_infer.pt")
+    bundle = load_infer_bundle()  # model/ibm_hi_medium_infer_750k_auprc80.pt
     body = infer_transactions(payload["transactions"], bundle=bundle, output="json")
 
 `output`:
@@ -62,7 +63,7 @@ RATES = {
     "Saudi Riyal": 0.25,
 }
 
-INFER_BUNDLE_PATH = Path("ibm_hi_medium_infer.pt")
+INFER_BUNDLE_PATH = Path(__file__).resolve().parent / "model" / "ibm_hi_medium_infer_750k_auprc80.pt"
 
 CONT_COLS = ["amount", "hours_from_start"]
 CAT_COLS = ["Payment Format"]
