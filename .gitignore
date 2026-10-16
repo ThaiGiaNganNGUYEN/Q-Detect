@@ -10,3 +10,6 @@ production_pipeline.md
 requirements.txt
 todo.md
 node_modules/
+
+# Training data cache (ML/train_amlgnn.py)
+ML/data/
