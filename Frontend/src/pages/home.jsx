@@ -3,7 +3,7 @@ import { Wordmark } from "../components/Brand";
 import MarkGraphStatus from "../components/MarkGraphStatus";
 import MuleNetworkGraph from "../components/MuleNetworkGraph";
 import { logout } from "../api/auth";
-import { getErrorMessage, isApiConfigured } from "../api/client";
+import { ApiError, getApiBaseUrl, getErrorMessage, isApiConfigured } from "../api/client";
 import { getClusters } from "../api/clusters";
 import { updateGraphStatus } from "../api/graphs";
 import { toRawClusterList } from "../data/adaptBackendCluster";
@@ -240,6 +240,70 @@ function HalfCircleIcon({ className = "h-4 w-4" }) {
 	);
 }
 
+// Where the dashboard's networks come from. Everything except "live" shows the
+// sample data, and DataSourceBanner says why.
+//   unconfigured -- VITE_API_BASE_URL isn't set
+//   loading      -- /api/clusters request in flight
+//   live         -- showing the backend's clusters
+//   empty        -- backend answered, but it has no clusters yet
+//   unreachable  -- no response at all (backend not running, or wrong URL)
+//   error        -- backend answered with an error
+function DataSourceBanner({ source, error, onRetry }) {
+	if (source === "live" || source === "loading") {
+		return null;
+	}
+
+	const messages = {
+		unconfigured: (
+			<>
+				<strong>Not connected to a backend.</strong> Set <code>VITE_API_BASE_URL</code> in{" "}
+				<code>Frontend/.env</code> and restart the dev server.
+			</>
+		),
+		unreachable: (
+			<>
+				<strong>Can't reach the backend</strong> at <code>{getApiBaseUrl()}</code>. Is it running?
+			</>
+		),
+		error: (
+			<>
+				<strong>The backend returned an error:</strong> {error}
+			</>
+		),
+		empty: (
+			<>
+				<strong>Connected to the backend, but there are no clusters yet.</strong> They appear once the
+				transaction poller has scored a batch (<code>POST /api/util/jobs/start</code>).
+			</>
+		),
+	};
+	const isProblem = source === "unreachable" || source === "error";
+
+	return (
+		<div
+			role="status"
+			className={`mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm ${
+				isProblem
+					? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200"
+					: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+			}`}
+		>
+			<p>
+				{messages[source]} Showing <strong>sample data</strong>.
+			</p>
+			{source !== "unconfigured" ? (
+				<button
+					type="button"
+					className="rounded border border-current px-2 py-1 text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+					onClick={onRetry}
+				>
+					Check again
+				</button>
+			) : null}
+		</div>
+	);
+}
+
 function getPreferredTheme() {
 	const stored = localStorage.getItem("qdetect-theme");
 	if (stored === "light" || stored === "dark" || stored === "auto") {
@@ -259,8 +323,9 @@ export default function Home() {
 	// Starts as the static sample data so the dashboard renders immediately;
 	// swapped for live backend clusters by the effect below once they load.
 	const [muleNetworks, setMuleNetworks] = useState(sampleMuleNetworks);
-	const [graphsLoading, setGraphsLoading] = useState(false);
-	const [graphsError, setGraphsError] = useState(null);
+	const [dataSource, setDataSource] = useState(() => (isApiConfigured() ? "loading" : "unconfigured"));
+	const [dataSourceError, setDataSourceError] = useState(null);
+	const [reloadKey, setReloadKey] = useState(0); // bumped by "Check again" to re-fetch
 	const [selectedGraphId, setSelectedGraphId] = useState(() => sampleMuleNetworks[0]?.id ?? "0");
 	const [graphSelection, setGraphSelection] = useState(null);
 	const [graphStatuses, setGraphStatuses] = useState(() =>
@@ -298,8 +363,16 @@ export default function Home() {
 		}
 
 		let cancelled = false;
-		setGraphsLoading(true);
-		setGraphsError(null);
+		setDataSource("loading");
+		setDataSourceError(null);
+
+		const showNetworks = (networks) => {
+			setMuleNetworks(networks);
+			setGraphStatuses(
+				Object.fromEntries(networks.map((graph) => [graph.id, graph.status ?? "Pending"])),
+			);
+			setSelectedGraphId(networks[0].id);
+		};
 
 		getClusters()
 			.then((response) => {
@@ -308,29 +381,32 @@ export default function Home() {
 				}
 				const { clusters } = adaptClustersResponse(toRawClusterList(response));
 				if (clusters.length === 0) {
+					showNetworks(sampleMuleNetworks);
+					setDataSource("empty");
 					return;
 				}
-				setMuleNetworks(clusters);
-				setGraphStatuses(
-					Object.fromEntries(clusters.map((graph) => [graph.id, graph.status ?? "Pending"])),
-				);
-				setSelectedGraphId(clusters[0].id);
+				showNetworks(clusters);
+				setDataSource("live");
 			})
 			.catch((error) => {
-				if (!cancelled) {
-					setGraphsError(getErrorMessage(error));
+				if (cancelled) {
+					return;
 				}
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setGraphsLoading(false);
+				showNetworks(sampleMuleNetworks);
+				// ApiError = the backend answered with an error status; anything else
+				// (fetch's TypeError) means the request never got a response.
+				if (error instanceof ApiError && error.status > 0) {
+					setDataSource("error");
+					setDataSourceError(getErrorMessage(error));
+				} else {
+					setDataSource("unreachable");
 				}
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [reloadKey]);
 
 	useEffect(() => {
 		setGraphSelection(null);
@@ -377,6 +453,7 @@ export default function Home() {
 
 	const sidebar = (
 		<div className="flex h-full flex-col">
+
 			<h2 className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 pt-5 pb-3 text-sm font-bold tracking-tight dark:border-ink-700">
 				<span>Graph</span>
 				{/* Shown only while the live /api/clusters fetch is in flight. */}
@@ -433,6 +510,7 @@ export default function Home() {
 					);
 				})}
 			</ul>
+
 		</div>
 	);
 
@@ -556,6 +634,7 @@ export default function Home() {
 					{sidebar}
 				</aside>
 
+
 				<main className="min-w-0 flex-1 space-y-5 p-4 sm:p-6">
 					<section className="card flex flex-wrap items-center justify-between gap-4 p-5">
 						<div className="flex min-w-0 items-center gap-4">
@@ -570,6 +649,7 @@ export default function Home() {
 								</div>
 							</div>
 						</div>
+
 						<MarkGraphStatus
 							status={selectedStatus}
 							onMarkSafe={() => markGraph("Safe")}

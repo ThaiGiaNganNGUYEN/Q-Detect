@@ -39,8 +39,11 @@ function partyLabel(party) {
  * (nodes/links for D3 + rows for the transaction table).
  */
 export function adaptCluster(cluster, options = {}) {
-	const layout = options.layout ?? (cluster.cluster_id === 0 ? CLUSTER_0_LAYOUT : null);
-	const routes = options.routes ?? (cluster.cluster_id === 0 ? CLUSTER_0_ROUTES : null);
+	// The hand-tuned layout/routes belong to the sample cluster 0 only -- live
+	// clusters use real transaction ids, which could collide with the route keys.
+	const isSampleCluster0 = cluster.cluster_id === 0 && !cluster.live;
+	const layout = options.layout ?? (isSampleCluster0 ? CLUSTER_0_LAYOUT : null);
+	const routes = options.routes ?? (isSampleCluster0 ? CLUSTER_0_ROUTES : null);
 
 	const accountMap = new Map();
 

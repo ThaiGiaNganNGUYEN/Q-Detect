@@ -16,18 +16,15 @@ router = APIRouter(prefix="/api", tags=["clusters"])
 @router.get("/graph", response_model=GraphResponse)
 def get_full_graph():
     """
-    Return the ENTIRE laundering graph as flat {nodes, edges} 
+    Return the ENTIRE laundering graph as flat {nodes, edges}
     """
-    try:
-        return cluster_service.compute_full_graph()
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Graph file not found. Run build_laundering_graph.py first.")
+    return cluster_service.compute_full_graph()
 
 
 @router.get("/graph/cluster/{cluster_id}", response_model=GraphResponse)
 def get_cluster_graph(cluster_id: int):
     """
-    Return just ONE cluster as flat {nodes, edges} 
+    Return just ONE cluster as flat {nodes, edges}
     """
     result = cluster_service.compute_graph_for_cluster(cluster_id)
     if result is None:
@@ -40,15 +37,7 @@ def list_clusters(min_size: int = 2, limit: int = 20):
     """
     Return the top laundering clusters, largest first.
     """
-    try:
-        clusters = cluster_service.compute_clusters(min_size=min_size)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Graph file not found. Run build_laundering_graph.py first.")
-
-    return ClusterListResponse(
-        totalClusters=len(clusters),
-        clusters=clusters[:limit],
-    )
+    return cluster_service.list_clusters(min_size=min_size, limit=limit)
 
 
 @router.get("/clusters/{cluster_id}", response_model=Cluster)
@@ -62,7 +51,7 @@ def get_cluster(cluster_id: int):
 
 @router.get("/accounts/{account_id}/cluster", response_model=Cluster)
 def get_cluster_for_account(account_id: str):
-    """Given a real account string (e.g. '070_1004287C8'), find its cluster."""
+    """Given an account id (e.g. '1004287C8_070'), find its cluster."""
     cluster = cluster_service.get_cluster_for_account(account_id)
     if cluster is None:
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found in any cluster")

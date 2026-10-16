@@ -1,4 +1,15 @@
-"""One-time job: load the raw AML transactions CSV into Postgres via COPY.
+"""One-time job: bulk-load the raw AML transactions CSV into the staging DB,
+sorted chronologically.
+
+Rows are inserted in timestamp order (CSV row order breaks ties), so
+staging_transaction.id runs 1..N in chronological order. A recurring job can
+then pull transactions in order by walking id forward from its last position.
+
+Timestamps only have minute precision, so hundreds of rows (up to ~11k)
+share each timestamp. That's why the recurring job must page by id, not by
+timestamp: a timestamp cursor would skip or re-read rows within a minute.
+
+Re-running truncates the table and reloads from scratch.
 
 Usage:
     uv run python -m scripts.load_transactions
@@ -11,63 +22,57 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import psycopg
-from sqlmodel import SQLModel, text
+from sqlmodel import SQLModel
 
-from db import PSYCOPG_DSN, get_engine
-from models.transaction import StagingTransaction  # noqa: F401 (registers the table)
+from db import STAGING_PSYCOPG_DSN, get_staging_engine
+from models import StagingTransaction
 
 CSV_PATH = Path(__file__).resolve().parents[1] / "dataset" / "HI-Small_Trans.csv"
+TABLE = StagingTransaction.__tablename__
 
-COPY_SQL = """
-COPY staging_transactions (
-    timestamp, from_bank, from_account, to_bank, to_account,
-    amount_received, receiving_currency, amount_paid, payment_currency,
-    payment_format, is_laundering
-)
-FROM STDIN WITH (FORMAT csv, HEADER true)
-"""
-
-INDEX_STATEMENTS = [
-    "CREATE INDEX IF NOT EXISTS ix_staging_from_account ON staging_transactions (from_bank, from_account)",
-    "CREATE INDEX IF NOT EXISTS ix_staging_to_account ON staging_transactions (to_bank, to_account)",
-    "CREATE INDEX IF NOT EXISTS ix_staging_timestamp ON staging_transactions (timestamp)",
+# Model fields in the same order as the CSV header columns.
+CSV_COLUMNS = [
+    "timestamp", "fromBank", "fromAccount", "toBank", "toAccount",
+    "amountReceived", "receivingCurrency", "amountPaid", "paymentCurrency",
+    "paymentFormat", "isLaundering",
 ]
+COLUMNS_SQL = ", ".join(f'"{c}"' for c in CSV_COLUMNS)
 
 
 def main() -> None:
     if not CSV_PATH.exists():
         raise SystemExit(f"Dataset not found at {CSV_PATH}")
 
-    engine = get_engine()
+    # Only create the staging table -- the models package registers every
+    # model, and the rest don't belong in the staging DB.
+    SQLModel.metadata.create_all(get_staging_engine(), tables=[StagingTransaction.__table__])
 
-    print("Creating tables...")
-    SQLModel.metadata.create_all(engine)
-
-    with engine.connect() as conn:
-        conn.execute(text("TRUNCATE TABLE staging_transactions RESTART IDENTITY"))
-        conn.commit()
-
-    print(f"Loading {CSV_PATH.name} into staging_transactions via COPY...")
     start = time.perf_counter()
+    with psycopg.connect(STAGING_PSYCOPG_DSN) as conn, conn.cursor() as cur:
+        cur.execute(f"TRUNCATE TABLE {TABLE} RESTART IDENTITY")
 
-    with psycopg.connect(PSYCOPG_DSN) as raw_conn:
-        with raw_conn.cursor() as cur:
-            with open(CSV_PATH, "r", encoding="utf-8") as f, cur.copy(COPY_SQL) as copy:
-                while chunk := f.read(1024 * 1024):
-                    copy.write(chunk)
+        # Unsorted landing table with the same column types, plus csv_row to
+        # keep the original file order as a tiebreaker for equal timestamps.
+        cur.execute(
+            f"CREATE TEMP TABLE csv_load ON COMMIT DROP AS "
+            f"SELECT {COLUMNS_SQL} FROM {TABLE} WITH NO DATA"
+        )
+        cur.execute("ALTER TABLE csv_load ADD COLUMN csv_row bigint GENERATED ALWAYS AS IDENTITY")
 
-    elapsed = time.perf_counter() - start
-    print(f"Load complete in {elapsed:.1f}s")
+        print(f"Copying {CSV_PATH.name}...")
+        copy_sql = f"COPY csv_load ({COLUMNS_SQL}) FROM STDIN WITH (FORMAT csv, HEADER true)"
+        with open(CSV_PATH, "rb") as f, cur.copy(copy_sql) as copy:
+            while chunk := f.read(1024 * 1024):
+                copy.write(chunk)
 
-    print("Building indexes...")
-    with engine.connect() as conn:
-        for stmt in INDEX_STATEMENTS:
-            conn.execute(text(stmt))
-        conn.commit()
+        print("Inserting into staging in chronological order...")
+        cur.execute(
+            f"INSERT INTO {TABLE} ({COLUMNS_SQL}) "
+            f"SELECT {COLUMNS_SQL} FROM csv_load ORDER BY \"timestamp\", csv_row"
+        )
+        count = cur.rowcount
 
-    with engine.connect() as conn:
-        count = conn.execute(text("SELECT COUNT(*) FROM staging_transactions")).scalar_one()
-    print(f"staging_transactions now has {count:,} rows")
+    print(f"Loaded {count:,} rows into {TABLE} in {time.perf_counter() - start:.1f}s")
 
 
 if __name__ == "__main__":

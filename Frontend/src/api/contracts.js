@@ -90,9 +90,11 @@
  * field, so a change on either side is easy to spot as a shape mismatch.
  *
  * @typedef {Object} Account
- * @property {string} accountId
+ * @property {string} accountId "{accountNumber}_{bank}", e.g. "1004287C8_070"
  * @property {string} bank
  * @property {string} accountNumber
+ * @property {string | null} [firstSeen] ISO timestamp of the account's earliest transaction
+ * @property {string | null} [lastSeen] ISO timestamp of the account's latest transaction
  *
  * @typedef {Object} TransactionRead
  * @property {string} transactionId
@@ -104,7 +106,7 @@
  * @property {boolean} isCrossBank
  * @property {boolean} isCrossCurrency
  * @property {boolean} isSelfTransfer
- * @property {number} fraudRiskScore 0.0-1.0 fraud probability. Placeholder -- currently just mirrors isLaundering (0.0/1.0) until real ML scoring exists.
+ * @property {number} fraudRiskScore 0.0-1.0 fraud probability from the GraphSAGE mule-hunter model.
  * @property {Account} sender
  * @property {Account} receiver
  *
@@ -112,7 +114,7 @@
  * @property {number} clusterId
  * @property {number} numAccounts
  * @property {number} numTransactions
- * @property {number} riskScore 0-100, % of transactions flagged by fraudRiskScore
+ * @property {number} riskScore 0-100, average fraudRiskScore of the cluster's transactions
  * @property {TransactionRead[]} transactions
  *
  * @typedef {Object} ClusterListResponse

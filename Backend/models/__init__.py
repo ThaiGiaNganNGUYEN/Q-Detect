@@ -15,6 +15,7 @@ order without you having to think about it each time.
 
 from .account import Account
 from .staging_transaction import StagingTransaction
+from .ingestion_checkpoint import IngestionCheckpoint
 from .transaction import Transaction, TransactionRead
 from .cluster import Cluster, ClusterListResponse
 from .graph import GraphNode, GraphEdge, GraphResponse
@@ -22,6 +23,7 @@ from .graph import GraphNode, GraphEdge, GraphResponse
 __all__ = [
     "Account",
     "StagingTransaction",
+    "IngestionCheckpoint",
     "Transaction",
     "TransactionRead",
     "Cluster",

@@ -38,7 +38,7 @@ function toRawTransaction(tx) {
 		is_cross_bank: tx.isCrossBank,
 		is_cross_currency: tx.isCrossCurrency,
 		is_self_transfer: tx.isSelfTransfer,
-		// Placeholder -- currently just mirrors isLaundering until real ML scoring exists.
+		// 0.0-1.0 GraphSAGE mule-hunter score from the cache DB.
 		fraud_risk_score: tx.fraudRiskScore,
 		sender: toRawParty(tx.sender),
 		receiver: toRawParty(tx.receiver),
@@ -51,6 +51,9 @@ function toRawTransaction(tx) {
 /** @param {import("../api/contracts").Cluster} cluster */
 export function toRawCluster(cluster) {
 	return {
+		// Live backend data -- keeps adaptCluster from applying the sample
+		// cluster 0's hand-tuned layout to real cluster 0.
+		live: true,
 		cluster_id: cluster.clusterId,
 		num_accounts: cluster.numAccounts,
 		num_transactions: cluster.numTransactions,
