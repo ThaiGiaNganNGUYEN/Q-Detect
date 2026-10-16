@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
+import { EventType } from "@azure/msal-browser";
 import { loginRequest } from "../auth/authConfig";
-import qDetectLogo from "../assets/qdetect-logo.png";
+import { AuthShell } from "../components/Brand";
 
 export default function LogPageMsal() {
-  const { instance, inProgress } = useMsal();
+  const { instance, inProgress, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
   const [loginError, setLoginError] = useState(null);
 
@@ -15,10 +16,22 @@ export default function LogPageMsal() {
     }
   }, [isAuthenticated]);
 
-  // Debug: shows in console whether an account is actually stored
   useEffect(() => {
-    console.log("ACCOUNTS:", instance.getAllAccounts());
-  }, [instance, isAuthenticated]);
+    console.log("ACCOUNTS:", accounts, instance.getAllAccounts());
+  }, [instance, accounts, isAuthenticated]);
+
+  useEffect(() => {
+    const id = instance.addEventCallback((event) => {
+      if (event.eventType === EventType.LOGIN_FAILURE) {
+        const message =
+          event.error?.errorMessage || event.error?.message || "Sign-in failed.";
+        setLoginError(message);
+      }
+    });
+    return () => {
+      if (id) instance.removeEventCallback(id);
+    };
+  }, [instance]);
 
   const handleLogin = () => {
     setLoginError(null);
@@ -29,46 +42,43 @@ export default function LogPageMsal() {
   };
 
   return (
-    <main className="min-h-screen bg-white px-4 py-10 text-center text-[#262626]">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[420px] flex-col items-center justify-center gap-8">
-        <div className="w-full">
-          <img
-            alt="Q-Detect Logo"
-            src={qDetectLogo}
-            className="mx-auto w-36 h-auto"
-          />
-        </div>
-
-        <h1
-          className="whitespace-nowrap text-[64px] leading-none text-black"
-          style={{ fontFamily: '"Inter", sans-serif' }}
+    <AuthShell title="Welcome back" subtitle="Sign in with your organisation account to continue.">
+      <div className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={handleLogin}
+          disabled={inProgress !== "none"}
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-lg bg-ink text-sm font-semibold text-white shadow-sm transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Q-Detect
-        </h1>
+          <MicrosoftIcon />
+          {inProgress !== "none" ? "Signing in..." : "Sign in with Microsoft"}
+        </button>
 
-        <section className="w-full rounded-[12px] border border-[#E3E3E3] bg-white px-3 py-3">
-          <div className="flex flex-col gap-3">
-            <p className="text-[11px] text-[#555555]">
-              Sign in with your organisation account 
-            </p>
+        {loginError && (
+          <p
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-snug text-red-700"
+            role="alert"
+          >
+            {loginError}
+          </p>
+        )}
 
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={inProgress !== "none"}
-              className="h-6 w-full rounded-[4px] bg-[#2F2F2F] text-[11px] font-normal text-white transition-colors hover:bg-[#1f1f1f] disabled:opacity-50"
-            >
-              {inProgress !== "none" ? "Signing in..." : "Sign in with Microsoft"}
-            </button>
-
-            {loginError && (
-              <p className="text-[11px] leading-snug text-[#B91C1C]">
-                {loginError}
-              </p>
-            )}
-          </div>
-        </section>
+        <p className="flex items-center gap-2 text-xs text-zinc-500">
+          <span className="h-2 w-2 rounded-full bg-brand" aria-hidden="true" />
+          Secured with Microsoft Entra ID single sign-on
+        </p>
       </div>
-    </main>
+    </AuthShell>
+  );
+}
+
+function MicrosoftIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+    </svg>
   );
 }
