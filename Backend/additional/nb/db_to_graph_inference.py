@@ -1,3 +1,16 @@
+"""Pull transactions from Postgres, clean/engineer features, build graph
+tensors (x, edge_index, edge_attr), and run them through a trained
+GNNEdgeClassifier.
+
+This mirrors the SQL in scripts/build_graph.py but keeps everything as
+in-memory tensors instead of writing nodes.csv / edges.csv, and adds the
+account_id -> node_idx mapping step that build_graph.py's CSV output
+skips (a CSV doesn't need integer indices, but a tensor does).
+
+Usage:
+    uv run python db_to_graph_inference.py
+"""
+
 import numpy as np
 import pandas as pd
 import torch
@@ -7,7 +20,9 @@ from db import get_engine  # your existing db.py
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+# ============================================================
 # 1. PULL raw rows from Postgres
+# ============================================================
 def fetch_transactions(engine, where_clause: str = "") -> pd.DataFrame:
     """Pull raw transaction rows. `where_clause` lets you scope this to a
     batch, e.g. "WHERE timestamp >= now() - interval '1 hour'" for a
@@ -20,7 +35,8 @@ def fetch_transactions(engine, where_clause: str = "") -> pd.DataFrame:
             amount_paid, amount_received,
             payment_currency, receiving_currency,
             payment_format,
-            timestamp
+            timestamp,
+            is_laundering
         FROM staging_transactions
         {where_clause}
     """
@@ -29,8 +45,9 @@ def fetch_transactions(engine, where_clause: str = "") -> pd.DataFrame:
     return df
 
 
-
+# ============================================================
 # 2. CLEAN — handle the usual real-world mess before any feature math
+# ============================================================
 def clean_transactions(df: pd.DataFrame) -> pd.DataFrame:
     before = len(df)
 
@@ -47,7 +64,7 @@ def clean_transactions(df: pd.DataFrame) -> pd.DataFrame:
     df['amount_paid'] = df['amount_paid'].clip(lower=0.01)
     df['amount_received'] = df['amount_received'].clip(lower=0.01)
 
-    # Build the composite account_id to use when building the graph
+    # Build the same composite account_id used in build_graph.py
     df['src_account_id'] = df['from_bank'].astype(str) + '_' + df['from_account'].astype(str)
     df['dst_account_id'] = df['to_bank'].astype(str) + '_' + df['to_account'].astype(str)
 
@@ -68,10 +85,11 @@ def clean_transactions(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
+# ============================================================
 # 3. NODE INDEX MAP — every account needs a stable integer id (0..N-1)
 #    for tensor indexing. This is the step build_graph.py's CSV export
 #    doesn't need but a tensor pipeline does.
+# ============================================================
 def build_node_index(df: pd.DataFrame) -> dict:
     accounts = pd.Index(
         pd.concat([df['src_account_id'], df['dst_account_id']]).unique()
@@ -81,15 +99,16 @@ def build_node_index(df: pd.DataFrame) -> dict:
     return node_idx_map
 
 
-
+# ============================================================
 # 4. NODE FEATURES (x) — same aggregation as NODE_AGG_SQL, done here in
 #    pandas since we already pulled the rows for edge building anyway.
 #    For a large table, prefer running NODE_AGG_SQL in Postgres instead.
+# ============================================================
 def build_node_features(df: pd.DataFrame, node_idx_map: dict) -> torch.Tensor:
     sent = df.groupby('src_account_id').agg(
         total_sent=('amount_paid', 'sum'),
-        tx_count_out=('id', 'count'), # How many transactions this account sent
-        unique_cp_out=('dst_account_id', 'nunique'), # how many distinct accounts this account received money from
+        tx_count_out=('id', 'count'),
+        unique_cp_out=('dst_account_id', 'nunique'),
     )
     received = df.groupby('dst_account_id').agg(
         total_received=('amount_received', 'sum'),
@@ -122,8 +141,9 @@ def build_node_features(df: pd.DataFrame, node_idx_map: dict) -> torch.Tensor:
     return x
 
 
-
+# ============================================================
 # 5. EDGE INDEX + EDGE FEATURES — vectorized, no Python row loops
+# ============================================================
 def build_edges(df: pd.DataFrame, node_idx_map: dict):
     src = df['src_account_id'].map(node_idx_map).values
     dst = df['dst_account_id'].map(node_idx_map).values

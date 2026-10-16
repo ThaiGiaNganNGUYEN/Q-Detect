@@ -22,8 +22,8 @@ class Cluster(SQLModel):
     clusterId: int
     numAccounts: int
     numTransactions: int
-    # % of this cluster's transactions flagged by fraudRiskScore -- see
-    # cluster_service.compute_clusters() for how it's derived.
+    # 0-100: average fraudRiskScore of this cluster's transactions -- see
+    # cluster_service._build_cluster() for how it's derived.
     riskScore: int = 0
     transactions: List[TransactionRead] = []
 

@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from db import get_engine
+from db import get_staging_engine
 from services.transactions import clean_transactions, fetch_transactions
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -14,7 +14,7 @@ def _to_records(df) -> list[dict]:
 
 @router.get("/recent")
 def get_recent_transactions(
-    engine=Depends(get_engine),
+    engine=Depends(get_staging_engine),
     minutes: int = Query(60, ge=1, le=10_080, description="How far back to pull, in minutes"),
     limit: int = Query(1_000, ge=1, le=50_000, description="Max rows to return"),
 ):
@@ -30,7 +30,7 @@ def get_recent_transactions(
 
 @router.get("/oldest")
 def get_oldest_transactions(
-    engine=Depends(get_engine),
+    engine=Depends(get_staging_engine),
     start_date: datetime | None = Query(None, description="Only return rows at/after this timestamp"),
     end_date: datetime | None = Query(None, description="Only return rows at/before this timestamp"),
     limit: int = Query(30_000, ge=1, le=50_000, description="Max rows to return"),
@@ -58,7 +58,7 @@ def get_oldest_transactions(
 
 
 @router.get("/{transaction_id}")
-def get_transaction(transaction_id: int, engine=Depends(get_engine)):
+def get_transaction(transaction_id: int, engine=Depends(get_staging_engine)):
     """Pull + clean a single transaction by id."""
     df = fetch_transactions(engine, f"WHERE id = {transaction_id}")
     df = clean_transactions(df)

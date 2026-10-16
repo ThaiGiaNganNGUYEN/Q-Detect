@@ -10,6 +10,10 @@ import Register from "./pages/register";
 import Home from "./pages/home";
 import { getAccessToken } from "./auth/getAccessToken";
 
+// Dev-only login bypass. import.meta.env.DEV is false in production builds,
+// so this can never skip login on a deployed site.
+const DEV_BYPASS_AUTH =
+    import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === "true";
 
 export default function App() {
     const { inProgress } = useMsal();
@@ -21,6 +25,10 @@ export default function App() {
         window.addEventListener("hashchange", handleHashChange);
         return () => window.removeEventListener("hashchange", handleHashChange);
     }, []);
+
+    if (DEV_BYPASS_AUTH) {
+        return <SignedInRouter view={view} />;
+    }
 
     // 1️⃣ Keep this — templates hide content during startup, but render
     // nothing. You want "Loading…", not a blank screen.

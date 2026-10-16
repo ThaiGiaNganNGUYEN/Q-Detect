@@ -1,6 +1,16 @@
 """
-Cluster/graph service layer -- all business logic for reading the saved
-laundering graph and computing clusters or flat graph responses.
+Cluster/graph service layer -- reads scored transactions from the cache DB
+and groups them into clusters (candidate mule networks) for the API.
+
+The laundering graph is every cached transaction the model flagged
+(isFlagged: score >= the model bundle's decision_threshold): accounts are
+nodes, flagged transactions are edges. A cluster is one connected component
+of that graph, numbered largest first.
+
+Components are built from just (id, sender, receiver) of the flagged rows
+and cached until the poller writes a new batch (MAX(transaction.id)
+changes). Full transaction/account rows are only fetched for the clusters
+actually being returned.
 
 Deliberately has NO FastAPI imports or route decorators. This file should
 be usable on its own (e.g. from a script, a test, or a different router)
@@ -8,35 +18,84 @@ without pulling in a web framework. routers/cluster_router.py is the only
 place that knows this logic is being exposed over HTTP.
 """
 
+from dataclasses import dataclass, field
+
 import networkx as nx
-from pathlib import Path
-from models import Account, TransactionRead, Cluster, GraphNode, GraphEdge, GraphResponse
+from sqlalchemy import inspect
+from sqlmodel import Session, func, select
 
-GRAPH_PATH = str(Path(__file__).resolve().parent / "output" / "laundering_graph.gexf")
-
-
-# ============================================================
-# Load the graph once, not on every call (rebuilding/reloading per-call
-# would be slow). Module-level cache -- shared across every caller that
-# imports this module, for the lifetime of the process.
-# ============================================================
-_graph_cache: nx.Graph | None = None
+from db import get_cache_engine
+from models import (
+    Account, Cluster, ClusterListResponse, GraphEdge, GraphNode, GraphResponse,
+    Transaction, TransactionRead,
+)
 
 
-def get_graph() -> nx.Graph:
-    global _graph_cache
-    if _graph_cache is None:
-        _graph_cache = nx.read_gexf(GRAPH_PATH)
-    return _graph_cache
+@dataclass
+class _Component:
+    accounts: set[str]
+    transaction_ids: list[int] = field(default_factory=list)
 
 
-def get_sorted_components(G: nx.Graph | None = None) -> list[set]:
-    """Weakly connected components, largest first -- one call, reused by
-    both compute_full_graph (via cluster_id) and compute_clusters."""
-    G = G if G is not None else get_graph()
-    components = list(nx.weakly_connected_components(G))
-    components.sort(key=len, reverse=True)
-    return components
+@dataclass
+class _Components:
+    version: int | None = None
+    components: list[_Component] = field(default_factory=list)
+    account_index: dict[str, int] = field(default_factory=dict)
+
+
+_cache = _Components()
+
+
+def get_components() -> _Components:
+    """Connected components of the flagged-transaction graph, largest first."""
+    global _cache
+    engine = get_cache_engine()
+    # The poller creates the cache tables on its first batch.
+    if not inspect(engine).has_table(Transaction.__tablename__):
+        return _Components()
+
+    with Session(engine) as session:
+        version = session.exec(select(func.max(Transaction.id))).one()
+        if version == _cache.version:
+            return _cache
+        edges = session.exec(
+            select(Transaction.id, Transaction.senderAcc, Transaction.receiverAcc)
+            .where(Transaction.isFlagged)
+        ).all()
+
+    # Undirected: connected components here = weakly connected components
+    # of the directed transaction graph.
+    G = nx.Graph()
+    G.add_edges_from((sender, receiver) for _, sender, receiver in edges)
+    components = [_Component(accounts=set(nodes)) for nodes in nx.connected_components(G)]
+
+    account_index = {acc: i for i, comp in enumerate(components) for acc in comp.accounts}
+    for tx_id, sender, _ in edges:
+        components[account_index[sender]].transaction_ids.append(tx_id)
+
+    # Largest first; earliest transaction breaks ties so cluster ids stay
+    # stable between requests on the same data.
+    for comp in components:
+        comp.transaction_ids.sort()
+    components.sort(key=lambda c: (-len(c.accounts), c.transaction_ids[0]))
+    account_index = {acc: i for i, comp in enumerate(components) for acc in comp.accounts}
+
+    _cache = _Components(version=version, components=components, account_index=account_index)
+    return _cache
+
+
+def invalidate_cache() -> None:
+    """Force the next request to rebuild components -- needed after the cache
+    DB is cleared, since a re-scored table can reach the same MAX(id) again."""
+    global _cache
+    _cache = _Components()
+
+
+def _fetch_transactions(session: Session, transaction_ids: list[int]) -> list[Transaction]:
+    return session.exec(
+        select(Transaction).where(Transaction.id.in_(transaction_ids)).order_by(Transaction.id)
+    ).all()
 
 
 # ============================================================
@@ -45,128 +104,105 @@ def get_sorted_components(G: nx.Graph | None = None) -> list[set]:
 # frontends expect, where edges reference node IDs instead of nesting
 # full node objects.
 # ============================================================
-def compute_full_graph(cluster_node_ids: set | None = None) -> GraphResponse:
-    G = get_graph()
+def _graph_response(components: list[_Component]) -> GraphResponse:
+    accounts = sorted(acc for comp in components for acc in comp.accounts)
+    transaction_ids = [tx_id for comp in components for tx_id in comp.transaction_ids]
 
-    # Either the whole graph, or just one cluster's subgraph if the
-    # caller passed a specific set of node ids
-    sub = G.subgraph(cluster_node_ids) if cluster_node_ids is not None else G
+    nodes = []
+    for account_id in accounts:
+        acc = Account.from_id(account_id)
+        nodes.append(GraphNode(id=acc.accountId, bank=acc.bank, accountNumber=acc.accountNumber))
 
-    nodes = [
-        GraphNode(
-            id=data.get('account', node_id),
-            bank=data.get('bank', ''),
-            accountNumber=data.get('account_number', ''),
+    with Session(get_cache_engine()) as session:
+        transactions = _fetch_transactions(session, transaction_ids) if transaction_ids else []
+
+    edges = [
+        GraphEdge(
+            id=str(tx.id),
+            source=tx.senderAcc,
+            target=tx.receiverAcc,
+            amount=tx.amountPaid,
+            currency=tx.currencyPaid,
+            paymentFormat=tx.paymentFormat,
+            timestamp=str(tx.timestamp),
+            hoursFromStart=tx.hoursFromStart,
+            isCrossBank=tx.isCrossBank,
+            isCrossCurrency=tx.isCrossCurrency,
+            isSelfTransfer=tx.isSelfTransfer,
         )
-        for node_id, data in sub.nodes(data=True)
+        for tx in transactions
     ]
 
-    edges = []
-    for i, (src, dst, edge_data) in enumerate(sub.edges(data=True), start=1):
-        edges.append(GraphEdge(
-            id=str(i),
-            source=G.nodes[src].get('account', src),
-            target=G.nodes[dst].get('account', dst),
-            amount=float(edge_data.get('amount_paid', 0.0)),
-            currency=str(edge_data.get('currency_paid', '')),
-            paymentFormat=str(edge_data.get('payment_format', '')),
-            timestamp=str(edge_data.get('timestamp', '')),
-            hoursFromStart=float(edge_data.get('hours_from_start', 0.0)),
-            isCrossBank=bool(edge_data.get('is_cross_bank', False)),
-            isCrossCurrency=bool(edge_data.get('is_cross_currency', False)),
-            isSelfTransfer=bool(edge_data.get('is_self_transfer', False)),
-        ))
+    return GraphResponse(numNodes=len(nodes), numEdges=len(edges), nodes=nodes, edges=edges)
 
-    return GraphResponse(
-        numNodes=sub.number_of_nodes(),
-        numEdges=sub.number_of_edges(),
-        nodes=nodes,
-        edges=edges,
-    )
+
+def compute_full_graph() -> GraphResponse:
+    return _graph_response(get_components().components)
 
 
 def compute_graph_for_cluster(cluster_id: int) -> GraphResponse | None:
     """Flat {nodes, edges} for one specific cluster. Returns None if
     cluster_id is out of range -- the router decides how to turn that
     into an HTTP error."""
-    components = get_sorted_components()
+    components = get_components().components
     if cluster_id < 0 or cluster_id >= len(components):
         return None
-    return compute_full_graph(cluster_node_ids=components[cluster_id])
+    return _graph_response([components[cluster_id]])
 
 
 # ============================================================
-# For each cluster, rebuild TransactionRead objects (with nested
-# sender/receiver Account objects) directly from the graph's edge
-# attributes.
+# Clusters with full TransactionRead objects (nested sender/receiver
+# Account objects), read from the cache DB.
 # ============================================================
-def compute_clusters(min_size: int = 1) -> list[Cluster]:
-    G = get_graph()
-    components = get_sorted_components(G)
+def _build_cluster(session: Session, cluster_id: int, comp: _Component) -> Cluster:
+    transactions = _fetch_transactions(session, comp.transaction_ids)
+    accounts = {
+        acc.accountId: acc
+        for acc in session.exec(select(Account).where(Account.accountId.in_(comp.accounts))).all()
+    }
+    transaction_reads = [
+        TransactionRead.from_transaction(tx, accounts[tx.senderAcc], accounts[tx.receiverAcc])
+        for tx in transactions
+    ]
 
-    clusters = []
-    tx_id_counter = 1
+    # Cluster-level risk score: average fraudRiskScore across this
+    # cluster's transactions, as a percentage.
+    total_score = sum(tx.fraudRiskScore for tx in transactions)
+    risk_score = round(100 * total_score / len(transactions)) if transactions else 0
 
-    for cluster_id, node_ids in enumerate(components):
-        if len(node_ids) < min_size:
-            continue
+    return Cluster(
+        clusterId=cluster_id,
+        numAccounts=len(comp.accounts),
+        numTransactions=len(transactions),
+        riskScore=risk_score,
+        transactions=transaction_reads,
+    )
 
-        sub = G.subgraph(node_ids)
-        transactions: list[TransactionRead] = []
 
-        # G is a MultiDiGraph -- edges(data=True) gives every individual
-        # transaction between two nodes, not just one per account pair
-        for src, dst, edge_data in sub.edges(data=True):
-            sender = Account.from_id(G.nodes[src].get('account', src))
-            receiver = Account.from_id(G.nodes[dst].get('account', dst))
-
-            transactions.append(TransactionRead(
-                transactionId=str(tx_id_counter),
-                amountPaid=float(edge_data.get('amount_paid', 0.0)),
-                currencyPaid=str(edge_data.get('currency_paid', '')),
-                paymentFormat=str(edge_data.get('payment_format', '')),
-                timestamp=str(edge_data.get('timestamp', '')),
-                hoursFromStart=float(edge_data.get('hours_from_start', 0.0)),
-                isCrossBank=bool(edge_data.get('is_cross_bank', False)),
-                isCrossCurrency=bool(edge_data.get('is_cross_currency', False)),
-                isSelfTransfer=bool(edge_data.get('is_self_transfer', False)),
-                # Placeholder until real ML scoring exists -- 0.0/1.0 mirroring
-                # is_laundering. Swap this one line for a real per-transaction
-                # fraud probability (e.g. 0.6995) later; nothing below needs to change.
-                fraudRiskScore=float(edge_data.get('is_laundering', False)),
-                sender=sender,
-                receiver=receiver,
-            ))
-            tx_id_counter += 1
-
-        # Cluster-level risk score: average fraud_risk_score across this
-        # cluster's transactions, as a percentage. Averaging (not counting
-        # how many are "flagged") is what makes this keep working once
-        # fraudRiskScore becomes a real continuous probability instead of 0/1.
-        total_score = sum(tx.fraudRiskScore for tx in transactions)
-        risk_score = round(100 * total_score / len(transactions)) if transactions else 0
-
-        clusters.append(Cluster(
-            clusterId=cluster_id,
-            numAccounts=len(node_ids),
-            numTransactions=sub.number_of_edges(),
-            riskScore=risk_score,
-            transactions=transactions,
-        ))
-
-    return clusters
+def list_clusters(min_size: int = 1, limit: int = 20) -> ClusterListResponse:
+    """The `limit` largest clusters with at least `min_size` accounts."""
+    matching = [
+        (cluster_id, comp)
+        for cluster_id, comp in enumerate(get_components().components)
+        if len(comp.accounts) >= min_size
+    ]
+    with Session(get_cache_engine()) as session:
+        clusters = [_build_cluster(session, cid, comp) for cid, comp in matching[:limit]]
+    return ClusterListResponse(totalClusters=len(matching), clusters=clusters)
 
 
 def get_cluster_by_id(cluster_id: int) -> Cluster | None:
-    for c in compute_clusters(min_size=1):
-        if c.clusterId == cluster_id:
-            return c
-    return None
+    components = get_components().components
+    if cluster_id < 0 or cluster_id >= len(components):
+        return None
+    with Session(get_cache_engine()) as session:
+        return _build_cluster(session, cluster_id, components[cluster_id])
 
 
 def get_cluster_for_account(account_id: str) -> Cluster | None:
-    for c in compute_clusters(min_size=1):
-        for tx in c.transactions:
-            if tx.sender.accountId == account_id or tx.receiver.accountId == account_id:
-                return c
-    return None
+    cached = get_components()
+    cluster_id = cached.account_index.get(account_id)
+    if cluster_id is None:
+        return None
+    with Session(get_cache_engine()) as session:
+        return _build_cluster(session, cluster_id, cached.components[cluster_id])

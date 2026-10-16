@@ -1,22 +1,42 @@
-# docker-compose.yml
 services:
-  db:
-    image: postgres:18
+  # DB 1: staging transactions (loaded once, read by the model)
+  staging_db:
+    image: postgres:17
+    restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: qdetect
-      POSTGRES_DB: qdetect
-      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: ${STAGING_DB_USER}
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD}
+      POSTGRES_DB: ${STAGING_DB_NAME}
     ports:
-      - "5433:5432"
+      - "5434:5432"              # 5432 on the host is taken by a native Windows Postgres
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - staging-data:/var/lib/postgresql/data
+      - ./db/staging-init:/docker-entrypoint-initdb.d   # schema .sql, runs on first start only
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # DB 2: cache of model output (scored edges, metrics) served by the API
+  cache_db:
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: ${CACHE_DB_USER}
+      POSTGRES_PASSWORD: ${CACHE_DB_PASSWORD}
+      POSTGRES_DB: ${CACHE_DB_NAME}
+    ports:
+      - "5433:5432"              # different host port, same container port
+    volumes:
+      - cache-data:/var/lib/postgresql/data
+      - ./db/cache-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  pgdata:
-
+  staging-data:
+  cache-data:

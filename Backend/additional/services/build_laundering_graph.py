@@ -1,22 +1,27 @@
 """
-Build a graph using ONLY confirmed laundering transactions (Is Laundering == 1).
+Build a graph using transactions the GraphSAGE mule-hunter model scores as
+risky (fraud_risk_score > 0.5), instead of the dataset's ground-truth
+"Is Laundering" label.
 
-This mirrors the same data-loading, stratified-sampling, and node/edge-mapping
-logic from the main notebook (Cells 6, 7, 9-11) -- sample 200k rows via
-stratified sampling (same class ratio as the full dataset, not plain random
-sampling), then filter that sample down to only the laundering rows.
+Mirrors the same data-loading and stratified-sampling logic from the main
+notebook (Cells 6, 7, 9-11) -- sample 200k rows via stratified sampling
+(same class ratio as the full dataset, not plain random sampling). Every
+sampled row is then scored by the trained MuleHunterGNN (mule_hunter_infer.py)
+in one batch, since the model is 2-hop GraphSAGE and needs the surrounding
+neighborhood to score well -- scoring rows one at a time or after already
+discarding their neighbors would starve it of context.
 
 Every row is validated through the StagingTransaction model before it's used,
 and every node/edge added to the graph is built from the Account/Transaction
 SQLModel models in models/ -- so the graph-construction step and the API step
-(cluster_api.py) share one single definition of what a "transaction" is.
+(cluster_service.py) share one single definition of what a "transaction" is.
 
 Usage:
     uv run python build_laundering_graph.py
 """
 
-import os
 import gc
+import json
 import pandas as pd
 import networkx as nx
 
@@ -25,14 +30,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from models import Account, StagingTransaction, Transaction
+from Backend.scripts.mule_hunter_infer import load_infer_bundle, infer_transactions
 
 SEED = 42
 SAMPLE_SIZE = 200_000
+RISK_THRESHOLD = 0.5
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+DATA_PATH = BACKEND_DIR / "dataset" / "HI-Small_Trans.csv"
+BUNDLE_PATH = Path(__file__).resolve().parent / "model" / "ibm_graph.pt"
 
 
-# 1. Load data 
-DATA_PATH = "../dataset/HI-Small_Trans.csv"   # adjust to your local path
-
+# 1. Load data
 dtype_map = {
     'From Bank': 'str',
     'Account': 'str',
@@ -46,7 +55,7 @@ dtype_map = {
     'Is Laundering': 'int8',
 }
 
-print(f"[INFO] Loading from {DATA_PATH} (exists: {os.path.exists(DATA_PATH)})")
+print(f"[INFO] Loading from {DATA_PATH} (exists: {DATA_PATH.exists()})")
 df_full = pd.read_csv(DATA_PATH, dtype=dtype_map)
 
 # Fix duplicate 'Account' column name -> 'Account.1' (same defensive check as notebook)
@@ -61,7 +70,7 @@ print(f"[OK] Full dataset: {df_full.shape[0]:,} rows")
 print(f"     Laundering rate: {df_full['Is Laundering'].mean():.4%}")
 
 
-# 2. Stratified sample to 200k rows 
+# 2. Stratified sample to 200k rows
 #    -- preserves the true laundering ratio, instead of leaving the
 #    laundering row count to random chance.
 laundering_mask = df_full['Is Laundering'] == 1
@@ -79,25 +88,53 @@ idx_legit = df_full[~laundering_mask].sample(
     n=min(n_legit_sample, n_legit), random_state=SEED
 ).index
 
-df_full = df_full.loc[idx_launder.union(idx_legit)].copy().reset_index(drop=True)
+df_sample = df_full.loc[idx_launder.union(idx_legit)].copy().reset_index(drop=True)
+del df_full
 gc.collect()
 
-print(f"[OK] Stratified sample: {len(df_full):,} rows")
-print(f"     Sampled laundering rate: {df_full['Is Laundering'].mean():.4%} "
+print(f"[OK] Stratified sample: {len(df_sample):,} rows")
+print(f"     Sampled laundering rate: {df_sample['Is Laundering'].mean():.4%} "
       f"(target ratio: {launder_ratio:.4%})")
-print(f"     Sampled laundering rows: {int(df_full['Is Laundering'].sum()):,}")
+print(f"     Sampled laundering rows: {int(df_sample['Is Laundering'].sum()):,}")
 
 
-# 3. Filter the sample down to ONLY laundering transactions
-#    (do this before the per-row model validation step, so we don't
-#    waste time validating ~199k rows we're about to discard anyway)
-df = df_full[df_full['Is Laundering'] == 1].copy().reset_index(drop=True)
-del df_full  # free memory, don't need the sampled full set anymore
+# 3. Score the whole sample with the trained GraphSAGE model, then keep
+#    only the rows the model itself flags as risky -- NOT the ground-truth
+#    "Is Laundering" label. Scored as one batch (not row-by-row) so the
+#    2-hop neighborhood the model needs is actually present.
+print(f"\n[INFO] Loading mule-hunter bundle from {BUNDLE_PATH}")
+bundle = load_infer_bundle(path=BUNDLE_PATH)
 
-print(f"\n[OK] Laundering-only subset: {len(df):,} transactions")
+INPUT_PATH = Path(__file__).resolve().parent / "output" / "model_input.txt"
+INPUT_PATH.parent.mkdir(exist_ok=True)
+INPUT_PATH.write_text(
+    json.dumps(df_sample.to_dict(orient="records"), indent=2, default=str),
+    encoding="utf-8",
+)
+print(f"[OK] Wrote raw model input transactions to {INPUT_PATH}")
 
-if len(df) == 0:
-    raise ValueError("No laundering transactions found -- check DATA_PATH / dtype_map.")
+print(f"[INFO] Scoring {len(df_sample):,} sampled transactions...")
+result = infer_transactions(df_sample, bundle=bundle, output="both")
+
+RESULT_PATH = Path(__file__).resolve().parent / "output" / "model_result.txt"
+RESULT_PATH.parent.mkdir(exist_ok=True)
+RESULT_PATH.write_text(result["json"], encoding="utf-8")
+print(f"[OK] Wrote raw model scoring result to {RESULT_PATH}")
+
+scored = result["frame"]  # polars DataFrame: df_sample's columns + risk_score
+
+risky = scored.filter(scored["risk_score"] > RISK_THRESHOLD)
+print(f"[OK] Model-flagged subset (risk_score > {RISK_THRESHOLD}): {risky.height:,} transactions "
+      f"({risky.height / scored.height:.4%} of the sample)")
+
+if risky.height == 0:
+    raise ValueError(f"No transactions scored above {RISK_THRESHOLD} -- check the model bundle.")
+
+df = risky.to_pandas()
+del scored, risky
+gc.collect()
+
+print(f"\n[OK] Model-flagged subset: {len(df):,} transactions")
 
 # Parse the raw timestamp string into a real datetime BEFORE it reaches
 # StagingTransaction. table=True SQLModel classes use SQLAlchemy's own
@@ -113,7 +150,11 @@ df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%Y/%m/%d %H:%M')
 #    model_validate() explicitly runs Pydantic validation/coercion,
 #    which plain StagingTransaction(**kwargs) construction skips for
 #    table=True models.
-staging_rows: list[StagingTransaction] = []
+#
+#    risk_score travels alongside each StagingTransaction as a plain
+#    (staged, score) pair -- it isn't part of the raw-row schema, it's
+#    the model's output, so it doesn't belong on StagingTransaction itself.
+staged_and_scores: list[tuple[StagingTransaction, float]] = []
 for row in df.to_dict(orient="records"):
     staged = StagingTransaction.model_validate({
         "fromBank": row['From Bank'],
@@ -128,24 +169,27 @@ for row in df.to_dict(orient="records"):
         "isLaundering": bool(row['Is Laundering']),
         "timestamp": row['Timestamp'].to_pydatetime(),
     }).with_derived_time_fields().with_derived_relational_fields()
-    staging_rows.append(staged)
+    staged_and_scores.append((staged, float(row['risk_score'])))
 
 # Sort chronologically now that every row is a validated StagingTransaction
-staging_rows.sort(key=lambda t: t.timestamp)
+staged_and_scores.sort(key=lambda pair: pair[0].timestamp)
 
 # hoursFromStart is relative to the earliest transaction in this dataset,
 # so it can only be computed once every row is sorted chronologically.
-dataset_start = staging_rows[0].timestamp
-staging_rows = [t.with_hours_from_start(dataset_start) for t in staging_rows]
+dataset_start = staged_and_scores[0][0].timestamp
+staged_and_scores = [
+    (staged.with_hours_from_start(dataset_start), score)
+    for staged, score in staged_and_scores
+]
 
-print(f"[OK] Validated {len(staging_rows):,} rows through StagingTransaction")
+print(f"[OK] Validated {len(staged_and_scores):,} rows through StagingTransaction")
 
 
 # 5. Build unique account identity + node index map
 #    (same pattern as notebook Cell 9, driven off StagingTransaction
 #    properties instead of raw dataframe columns)
 all_account_ids = sorted({
-    acc for t in staging_rows for acc in (t.senderId, t.receiverId)
+    acc for staged, _ in staged_and_scores for acc in (staged.senderId, staged.receiverId)
 })
 accounts = [Account.from_id(acc_id) for acc_id in all_account_ids]
 
@@ -154,13 +198,13 @@ idx_to_account = {idx: acc for idx, acc in enumerate(accounts)}   # idx -> Accou
 num_nodes = len(accounts)
 
 print(f"[OK] Laundering-network nodes (unique accounts): {num_nodes:,}")
-print(f"     Laundering-network edges (transactions):    {len(staging_rows):,}")
+print(f"     Laundering-network edges (transactions):    {len(staged_and_scores):,}")
 
 
 # 6. Build the graph with NetworkX (directed multigraph --
 #    same account pair CAN have multiple laundering transfers).
 #    Every node/edge added here comes from the Account/Transaction
-#    models -- the same models cluster_api.py uses.
+#    models -- the same models cluster_service.py uses.
 G = nx.MultiDiGraph()
 
 for idx, acc in idx_to_account.items():
@@ -168,8 +212,8 @@ for idx, acc in idx_to_account.items():
     # individually rather than storing the object itself
     G.add_node(idx, account=acc.accountId, bank=acc.bank, account_number=acc.accountNumber)
 
-for i, staged in enumerate(staging_rows, start=1):
-    transaction = Transaction.from_staging(staged, tx_id=str(i))
+for i, (staged, score) in enumerate(staged_and_scores, start=1):
+    transaction = Transaction.from_staging(staged, tx_id=str(i), fraud_risk_score=score)
 
     src_idx = account_to_idx[transaction.senderAcc]
     dst_idx = account_to_idx[transaction.receiverAcc]

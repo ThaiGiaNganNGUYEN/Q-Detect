@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from db import PSYCOPG_DSN, get_engine
+from db import STAGING_PSYCOPG_DSN, get_staging_engine
 
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "output" / "graph"
 NODES_CSV = OUTPUT_DIR / "nodes.csv"
@@ -151,10 +151,10 @@ def build_edges(conn) -> None:
 
 
 def main() -> None:
-    engine = get_engine()
+    engine = get_staging_engine()
     build_nodes(engine)
 
-    with psycopg.connect(PSYCOPG_DSN) as conn:
+    with psycopg.connect(STAGING_PSYCOPG_DSN) as conn:
         build_edges(conn)
 
     print("Graph build complete.")
