@@ -8,14 +8,14 @@
  * - GET  /auth/me
  * - PATCH /auth/me
  * - POST /auth/change-password
- * - PATCH /graphs/:graphId/status
  * (served by Backend/routers/cluster_router.py -- api/clusters.js calls these)
  * - GET  /api/graph
  * - GET  /api/graph/cluster/:clusterId
  * - GET  /api/clusters
  * - GET  /api/clusters/:clusterId
  * - GET  /api/accounts/:accountId/cluster
- * (frontend contract for storing a graph note; api/notes.js calls these)
+ * (saved analyst decisions; api/graphs.js and api/notes.js call these)
+ * - PATCH /api/clusters/:clusterId/status
  * - GET  /api/clusters/:clusterId/notes
  * - POST /api/clusters/:clusterId/notes
  *
@@ -70,8 +70,9 @@
  * @property {GraphStatus} status
  *
  * @typedef {Object} UpdateGraphStatusResponse
- * @property {string} id
+ * @property {number} clusterId
  * @property {GraphStatus} status
+ * @property {boolean} hasNewActivity
  *
  * @typedef {Object} GraphNoteRequest
  * @property {string} note
@@ -79,6 +80,7 @@
  * @typedef {Object} GraphNote
  * @property {string|number} clusterId
  * @property {string} note
+ * @property {string | null} [updatedAt]
  *
  * @typedef {Object} ApiErrorShape
  * @property {number} status
@@ -111,10 +113,12 @@
  * @property {Account} receiver
  *
  * @typedef {Object} Cluster
- * @property {number} clusterId
+ * @property {number} clusterId The graph's stable number, shown as "Graph {clusterId}"
  * @property {number} numAccounts
  * @property {number} numTransactions
  * @property {number} riskScore 0-100, average fraudRiskScore of the cluster's transactions
+ * @property {GraphStatus} status
+ * @property {boolean} hasNewActivity New flagged transactions arrived after the analyst's decision
  * @property {TransactionRead[]} transactions
  *
  * @typedef {Object} ClusterListResponse

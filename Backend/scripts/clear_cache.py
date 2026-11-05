@@ -1,6 +1,6 @@
-"""Delete every account and transaction from the cache DB.
+"""Delete every account, transaction and stored graph from the cache DB.
 
-With --reset-checkpoint, also resets the transaction poller's checkpoint so
+This permanently removes analysts' statuses and notes. With --reset-checkpoint, also resets the transaction poller's checkpoint so
 everything is re-scored from staging id 1; without it, the poller carries on
 from its checkpoint and the cleared rows are never re-scored.
 
@@ -32,8 +32,9 @@ def main() -> None:
 
     result = clear_cache(reset=args.reset_checkpoint)
     print(
-        f"Deleted {result['transactionsDeleted']:,} transactions and "
-        f"{result['accountsDeleted']:,} accounts from the cache DB"
+        f"Deleted {result['transactionsDeleted']:,} transactions, "
+        f"{result['accountsDeleted']:,} accounts and "
+        f"{result['graphsDeleted']:,} graphs from the cache DB"
     )
     if args.reset_checkpoint:
         previous = result["previousLastId"]

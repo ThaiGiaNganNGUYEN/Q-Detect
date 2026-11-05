@@ -45,9 +45,6 @@ function toRawTransaction(tx) {
 	};
 }
 
-// No risk/status field exists on the backend Cluster model yet --
-// leaving them unset lets adaptCluster fall back to its own
-// SAMPLE_GRAPH_RISKS placeholder and "Pending" default.
 /** @param {import("../api/contracts").Cluster} cluster */
 export function toRawCluster(cluster) {
 	return {
@@ -61,6 +58,8 @@ export function toRawCluster(cluster) {
 		// sidebar's Risk % column and the graph badge -- no other file needs
 		// to change for this to show up.
 		risk: cluster.riskScore,
+		status: cluster.status,
+		has_new_activity: cluster.hasNewActivity,
 		transactions: (cluster.transactions ?? []).map(toRawTransaction),
 	};
 }

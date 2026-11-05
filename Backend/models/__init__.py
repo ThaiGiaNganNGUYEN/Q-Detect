@@ -17,7 +17,15 @@ from .account import Account
 from .staging_transaction import StagingTransaction
 from .ingestion_checkpoint import IngestionCheckpoint
 from .transaction import Transaction, TransactionRead
-from .cluster import Cluster, ClusterListResponse
+from .mule_graph import MuleGraph, MuleGraphAccount, MuleGraphTransaction
+from .cluster import (
+    Cluster,
+    ClusterListResponse,
+    GraphNoteRequest,
+    GraphNoteResponse,
+    GraphStatusRequest,
+    GraphStatusResponse,
+)
 from .graph import GraphNode, GraphEdge, GraphResponse
 
 __all__ = [
@@ -28,6 +36,13 @@ __all__ = [
     "TransactionRead",
     "Cluster",
     "ClusterListResponse",
+    "GraphNoteRequest",
+    "GraphNoteResponse",
+    "GraphStatusRequest",
+    "GraphStatusResponse",
+    "MuleGraph",
+    "MuleGraphAccount",
+    "MuleGraphTransaction",
     "GraphNode",
     "GraphEdge",
     "GraphResponse",

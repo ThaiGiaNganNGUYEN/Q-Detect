@@ -23,6 +23,7 @@ from sqlmodel import SQLModel
 
 from db import CACHE_PSYCOPG_DSN, get_cache_engine
 from models import Account, Transaction
+from services.graph_store import ensure_tables
 
 ACCOUNT_COLUMNS = ["accountId", "bank", "accountNumber", "firstSeen", "lastSeen"]
 TRANSACTION_COLUMNS = [
@@ -122,12 +123,23 @@ def write_scored_batch(result: dict) -> tuple[int, int]:
     return accounts_upserted, transactions_inserted
 
 
-def clear_cache() -> tuple[int, int]:
-    """Delete every cached account and transaction. Returns (accounts, transactions) removed."""
+def clear_cache() -> tuple[int, int, int]:
+    """Delete every cached account and transaction, and every stored graph with
+    its status and note. Graph numbers restart at 1.
+
+    Returns (accounts, transactions, graphs) removed.
+    """
     if not inspect(get_cache_engine()).has_table(Transaction.__tablename__):
-        return 0, 0
+        return 0, 0, 0
+    ensure_tables()
     with psycopg.connect(CACHE_PSYCOPG_DSN) as conn:
         accounts = conn.execute("SELECT COUNT(*) FROM account").fetchone()[0]
         transactions = conn.execute('SELECT COUNT(*) FROM "transaction"').fetchone()[0]
-        conn.execute('TRUNCATE "transaction", account')
-    return accounts, transactions
+        graphs = conn.execute(
+            'SELECT COUNT(*) FROM mule_graph WHERE "mergedInto" IS NULL'
+        ).fetchone()[0]
+        conn.execute(
+            "TRUNCATE mule_graph_account, mule_graph_transaction, mule_graph, "
+            '"transaction", account RESTART IDENTITY'
+        )
+    return accounts, transactions, graphs

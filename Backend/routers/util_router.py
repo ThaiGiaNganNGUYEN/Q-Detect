@@ -10,7 +10,6 @@ these endpoints only control it while the app is running.
 from fastapi import APIRouter
 
 from jobs import transaction_poller
-from services import cluster_service
 
 router = APIRouter(prefix="/api/util", tags=["util"])
 
@@ -64,7 +63,8 @@ def reset_ingestion():
 
 @router.post("/cache/clear")
 def clear_cache(reset_checkpoint: bool = False):
-    """Delete every account and transaction from the cache DB.
+    """Delete every account, transaction and stored graph from the cache DB.
+    This permanently removes analysts' statuses and notes.
 
     Waits for a batch in progress to finish first. Without
     reset_checkpoint=true the poller carries on from its checkpoint, so the
@@ -72,5 +72,4 @@ def clear_cache(reset_checkpoint: bool = False):
     same step and everything is re-scored from staging id 1.
     """
     result = transaction_poller.clear_cache(reset=reset_checkpoint)
-    cluster_service.invalidate_cache()
     return {**result, **_status()}

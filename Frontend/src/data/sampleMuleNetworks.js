@@ -6,11 +6,17 @@ import {
 
 const SAMPLE_GRAPH_RISKS = [89, 95, 87, 96, 88, 97, 73, 89];
 
-function isCashPayment(tx) {
-	if (typeof tx.payment_format === "string" && /cash/i.test(tx.payment_format)) {
-		return true;
-	}
-	return Boolean(tx.sender?.id && tx.receiver?.id && tx.sender.id === tx.receiver.id);
+const SELF_TRANSFER_LABEL = "Self-transfer";
+
+// A payment with no separate receiver to draw a line to, so it gets its own
+// node. A Cash payment between two different accounts is NOT one of these:
+// it's a normal transaction and is drawn between those accounts.
+function isSelfPayment(tx) {
+	return !tx.receiver?.id || tx.sender?.id === tx.receiver.id;
+}
+
+function isCashFormat(tx) {
+	return typeof tx.payment_format === "string" && /cash/i.test(tx.payment_format);
 }
 
 function formatAmount(amount) {
@@ -64,17 +70,24 @@ export function adaptCluster(cluster, options = {}) {
 		});
 	};
 
-	const ensureCashOut = (senderId) => {
+	// One node per account, labelled "Cash-Out" or "Self-transfer".
+	const ensureSelfPaymentNode = (senderId, label) => {
 		const cashId = `cashout-${senderId}`;
-		if (accountMap.has(cashId)) {
+		const existing = accountMap.get(cashId);
+		if (existing) {
+			// An account with both kinds is labelled with the more general one.
+			if (existing.label !== label) {
+				existing.label = SELF_TRANSFER_LABEL;
+				existing.lastName = SELF_TRANSFER_LABEL;
+			}
 			return cashId;
 		}
 		const fixed = layout?.[cashId];
 		accountMap.set(cashId, {
 			id: cashId,
 			kind: "cashout",
-			label: "Cash-Out",
-			lastName: "Cash-Out",
+			label,
+			lastName: label,
 			fx: fixed?.x,
 			fy: fixed?.y,
 		});
@@ -86,18 +99,20 @@ export function adaptCluster(cluster, options = {}) {
 
 	for (const tx of cluster.transactions ?? []) {
 		ensureAccount(tx.sender);
-		const cash = isCashPayment(tx);
-		const route = routes?.[tx.id] ?? routes?.[String(tx.id)] ?? (cash ? "cashout" : null);
+		const selfPayment = isSelfPayment(tx);
+		const cashOut = selfPayment && isCashFormat(tx);
+		const route = routes?.[tx.id] ?? routes?.[String(tx.id)] ?? (selfPayment ? "cashout" : null);
 
-		if (cash) {
-			const cashId = ensureCashOut(tx.sender.id);
+		if (selfPayment) {
+			const cashId = ensureSelfPaymentNode(tx.sender.id, cashOut ? "Cash-Out" : SELF_TRANSFER_LABEL);
 			links.push({
 				source: tx.sender.id,
 				target: cashId,
 				txId: tx.id,
 				amount: formatAmount(tx.amount),
 				ref: `Tr-Id ${tx.id}`,
-				isCashOut: true,
+				isSelfPayment: true,
+				isCashOut: cashOut,
 				route: route ?? "cashout",
 				currency: tx.currency,
 				payment_format: tx.payment_format,
@@ -113,6 +128,7 @@ export function adaptCluster(cluster, options = {}) {
 				txId: tx.id,
 				amount: formatAmount(tx.amount),
 				ref: `Tr-Id ${tx.id}`,
+				isSelfPayment: false,
 				isCashOut: false,
 				route,
 				currency: tx.currency,
@@ -140,23 +156,27 @@ export function adaptCluster(cluster, options = {}) {
 			sender: tx.sender,
 			receiver: tx.receiver,
 			fromLabel: formatParty(tx.sender),
-			toLabel: cash ? "" : formatParty(tx.receiver),
-			isCashOut: cash,
+			toLabel: cashOut ? "" : formatParty(tx.receiver),
+			isSelfPayment: selfPayment,
+			isCashOut: cashOut,
 		});
 	}
 
 	const uniqueAccountCount =
 		cluster.num_accounts ??
 		[...accountMap.values()].filter((node) => node.kind === "account").length;
-	const letter = String.fromCharCode(65 + (Number(cluster.cluster_id) || 0));
+	// A live cluster_id is already the graph's stable number. Sample ids start at 0.
+	const number = cluster.live ? cluster.cluster_id : (Number(cluster.cluster_id) || 0) + 1;
 
 	return {
 		id: String(cluster.cluster_id),
 		cluster_id: cluster.cluster_id,
-		letter,
-		name: `Graph ${letter}`,
+		// Only live graphs are saved. Sample ids could match real graph numbers.
+		live: Boolean(cluster.live),
+		name: `Graph ${number}`,
 		risk: cluster.risk ?? SAMPLE_GRAPH_RISKS[cluster.cluster_id] ?? 0,
 		status: cluster.status ?? "Pending",
+		hasNewActivity: Boolean(cluster.has_new_activity),
 		num_accounts: uniqueAccountCount,
 		num_transactions: cluster.num_transactions ?? (cluster.transactions?.length ?? 0),
 		nodes: [...accountMap.values()],

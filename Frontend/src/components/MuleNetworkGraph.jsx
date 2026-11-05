@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import cashOutIcon from "../assets/cash-out-icon.png";
-import { getErrorMessage, isApiConfigured } from "../api/client";
+import { getErrorMessage } from "../api/client";
 import { getGraphNote, submitGraphNote } from "../api/notes";
 import { exportSvgAsPng, toFileSlug } from "../utils/download";
 
@@ -104,7 +104,7 @@ function computeLayeredLayout(nodes, links, width, height, detailed) {
 	const incoming = new Map(accounts.map((id) => [id, []]));
 
 	for (const link of links) {
-		if (link.isCashOut) {
+		if (link.isSelfPayment) {
 			continue;
 		}
 		const sourceId = typeof link.source === "object" ? link.source.id : link.source;
@@ -191,7 +191,7 @@ function computeLayeredLayout(nodes, links, width, height, detailed) {
 	const cashOutOffsetX = detailed ? 170 : 130;
 	const cashOutOffsets = new Map();
 	for (const link of links) {
-		if (!link.isCashOut) {
+		if (!link.isSelfPayment) {
 			continue;
 		}
 		const sourceId = typeof link.source === "object" ? link.source.id : link.source;
@@ -287,7 +287,7 @@ function routePoints(d) {
 		return [start, { x: leftX, y: start.y }, { x: leftX, y: bottomY }, { x: end.x, y: bottomY }, end];
 	}
 
-	if (route === "cashout" || d.isCashOut) {
+	if (route === "cashout" || d.isSelfPayment) {
 		const start = edgePoint(s, t.x >= s.x ? "right" : "left");
 		const end = edgePoint(t, t.x >= s.x ? "left" : "right");
 		if (Math.abs(start.y - end.y) < 10) {
@@ -503,6 +503,7 @@ function renderStaticGraph({
 	const highlightStroke = isDark ? "#86bc24" : "#6f9e1a";
 	const labelFill = isDark ? "#f4f4f5" : "#0f0b0b";
 	const cashOutLabel = "#26890d";
+	const selfTransferStroke = "#52525b";
 	const bgFill = isDark ? "#171212" : "#ffffff";
 	const userFill = isDark ? "#3d3636" : "#0f0b0b";
 	const markerId = `arrow-${graphId}-${detailed ? "detail" : "simple"}`;
@@ -515,7 +516,7 @@ function renderStaticGraph({
 		: links.filter((link) => {
 				const sourceId = typeof link.source === "object" ? link.source.id : link.source;
 				const targetId = typeof link.target === "object" ? link.target.id : link.target;
-				return !link.isCashOut && visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
+				return !link.isSelfPayment && visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
 			});
 
 	const layout = computeLayout(visibleNodes, visibleLinks, width, height, detailed);
@@ -655,24 +656,39 @@ function renderStaticGraph({
 			.attr("pointer-events", "none");
 		if (d.kind === "cashout") {
 			const radius = d.r ?? (detailed ? 42 : 38);
-			const iconSize = radius * 1.55;
-			const clipId = `cashout-clip-${graphId}-${detailed ? "d" : "s"}-${String(d.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-			defs.append("clipPath").attr("id", clipId).append("circle").attr("r", radius);
-			g.append("circle").attr("r", radius).attr("fill", "#ffffff").attr("stroke", cashOutLabel).attr("stroke-width", 3);
-			g.append("image")
-				.attr("href", cashOutIconUrl)
-				.attr("x", -iconSize / 2)
-				.attr("y", -iconSize / 2)
-				.attr("width", iconSize)
-				.attr("height", iconSize)
-				.attr("clip-path", `url(#${clipId})`);
-			g.append("circle").attr("r", radius).attr("fill", "none").attr("stroke", cashOutLabel).attr("stroke-width", 3).attr("pointer-events", "none");
+			const isCashOutNode = d.label === "Cash-Out";
+			const nodeStroke = isCashOutNode ? cashOutLabel : selfTransferStroke;
+			g.append("circle").attr("r", radius).attr("fill", "#ffffff").attr("stroke", nodeStroke).attr("stroke-width", 3);
+			if (isCashOutNode) {
+				const iconSize = radius * 1.55;
+				const clipId = `cashout-clip-${graphId}-${detailed ? "d" : "s"}-${String(d.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+				defs.append("clipPath").attr("id", clipId).append("circle").attr("r", radius);
+				g.append("image")
+					.attr("href", cashOutIconUrl)
+					.attr("x", -iconSize / 2)
+					.attr("y", -iconSize / 2)
+					.attr("width", iconSize)
+					.attr("height", iconSize)
+					.attr("clip-path", `url(#${clipId})`);
+			} else {
+				// Circular arrow: money that came back to the same account.
+				g.append("path")
+					.attr("d", "M-11 -8V-2H-5M-8.49 3a9 9 0 1 0 2.13-9.36L-11 -2")
+					.attr("transform", `scale(${radius / 18})`)
+					.attr("fill", "none")
+					.attr("stroke", nodeStroke)
+					.attr("stroke-width", 2)
+					.attr("stroke-linecap", "round")
+					.attr("stroke-linejoin", "round")
+					.attr("pointer-events", "none");
+			}
+			g.append("circle").attr("r", radius).attr("fill", "none").attr("stroke", nodeStroke).attr("stroke-width", 3).attr("pointer-events", "none");
 			g.append("text")
-				.text("Cash-Out")
+				.text(d.label)
 				.attr("x", 0)
 				.attr("y", radius + 18)
 				.attr("text-anchor", "middle")
-				.attr("fill", cashOutLabel)
+				.attr("fill", isCashOutNode ? cashOutLabel : labelFill)
 				.attr("font-size", detailed ? "13px" : "12px")
 				.attr("font-weight", "700")
 				.attr("font-family", "system-ui, sans-serif")
@@ -727,7 +743,7 @@ function renderStaticGraph({
 		return {
 			txIds: new Set([String(tx.id)]),
 			nodeIds: new Set(
-				[tx.sender?.id, tx.isCashOut ? `cashout-${tx.sender?.id}` : tx.receiver?.id].filter(Boolean).map(String),
+				[tx.sender?.id, tx.isSelfPayment ? `cashout-${tx.sender?.id}` : tx.receiver?.id].filter(Boolean).map(String),
 			),
 			focusNodeId: null,
 		};
@@ -836,7 +852,8 @@ function renderStaticGraph({
 			applyHighlight(nextSelection);
 			interactionRef?.current?.onSelect?.(nextSelection);
 			if (interactionRef?.current?.enableNodePopup) {
-				const transactionCount = layout.links.filter((item) => linkTouchesNode(item, d.id)).length;
+				// All of the account's transactions, including lines this view hides.
+				const transactionCount = links.filter((item) => linkTouchesNode(item, d.id)).length;
 				interactionRef.current.openNodePopup?.(event, d, transactionCount);
 			}
 		});
@@ -1076,6 +1093,7 @@ function GraphCanvas({
 export default function MuleNetworkGraph({
 	graphId,
 	graphName,
+	live = false,
 	nodes,
 	links,
 	isDark = false,
@@ -1132,7 +1150,7 @@ export default function MuleNetworkGraph({
 	}, [detailedOpen]);
 
 	useEffect(() => {
-		if (!isApiConfigured()) {
+		if (!live) {
 			return undefined;
 		}
 
@@ -1150,7 +1168,7 @@ export default function MuleNetworkGraph({
 		return () => {
 			cancelled = true;
 		};
-	}, [graphId]);
+	}, [graphId, live]);
 
 	useEffect(() => {
 		if (notesOpen) {
@@ -1160,8 +1178,8 @@ export default function MuleNetworkGraph({
 
 	const submitNotes = async () => {
 		setNoteError("");
-		if (!isApiConfigured()) {
-			setNoteError("API is not configured. Set VITE_API_BASE_URL.");
+		if (!live) {
+			setNoteError("This is sample data, so the note can't be saved.");
 			return;
 		}
 

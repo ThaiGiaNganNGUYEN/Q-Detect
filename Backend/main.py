@@ -1,4 +1,6 @@
+import asyncio
 import os
+import traceback
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -18,6 +20,13 @@ AUTO_START_POLLER = os.getenv("AUTO_START_POLLER", "false").lower() in ("1", "tr
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Creates the graph tables and backfills anything not assigned yet. A
+    # failure is logged rather than stopping the API from starting.
+    try:
+        await asyncio.to_thread(transaction_poller.sync_graphs)
+    except Exception:
+        traceback.print_exc()
+
     # Runs as a single in-process loop -- start the app with one worker,
     # or every worker process will pull the same batches.
     if AUTO_START_POLLER:

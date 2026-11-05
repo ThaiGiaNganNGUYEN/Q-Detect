@@ -7,7 +7,15 @@ Python function calls.
 
 from fastapi import APIRouter, HTTPException
 
-from models import ClusterListResponse, Cluster, GraphResponse
+from models import (
+    Cluster,
+    ClusterListResponse,
+    GraphNoteRequest,
+    GraphNoteResponse,
+    GraphResponse,
+    GraphStatusRequest,
+    GraphStatusResponse,
+)
 from services import cluster_service
 
 router = APIRouter(prefix="/api", tags=["clusters"])
@@ -47,6 +55,33 @@ def get_cluster(cluster_id: int):
     if cluster is None:
         raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
     return cluster
+
+
+@router.patch("/clusters/{cluster_id}/status", response_model=GraphStatusResponse)
+def update_cluster_status(cluster_id: int, body: GraphStatusRequest):
+    """Save an analyst's decision: Pending, Safe or Fraud."""
+    result = cluster_service.set_status(cluster_id, body.status)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
+    return result
+
+
+@router.get("/clusters/{cluster_id}/notes", response_model=GraphNoteResponse)
+def get_cluster_note(cluster_id: int):
+    """Return a cluster's note. 404 means it has none yet."""
+    result = cluster_service.get_note(cluster_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No note for cluster {cluster_id}")
+    return result
+
+
+@router.post("/clusters/{cluster_id}/notes", response_model=GraphNoteResponse)
+def save_cluster_note(cluster_id: int, body: GraphNoteRequest):
+    """Save a cluster's note, replacing any previous one."""
+    result = cluster_service.save_note(cluster_id, body.note)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
+    return result
 
 
 @router.get("/accounts/{account_id}/cluster", response_model=Cluster)

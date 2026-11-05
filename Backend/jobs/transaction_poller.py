@@ -31,6 +31,7 @@ from sqlmodel import Session, SQLModel, text
 from db import get_staging_engine
 from models import IngestionCheckpoint, StagingTransaction
 from services.cache_store import clear_cache as clear_cache_db, write_scored_batch
+from services.graph_store import AssignmentSummary, assign_new_transactions
 from services.transaction_scoring import save_output, score_transactions
 
 JOB_NAME = "transaction_poller"
@@ -73,13 +74,23 @@ def process_batch(df: pd.DataFrame) -> None:
     result = score_transactions(df)
     output_path = save_output(result, first_id, last_id)
     accounts, transactions = write_scored_batch(result)
+    graphs = assign_new_transactions()
     print(
         f"[{JOB_NAME}] Scored {result['n_edges']:,} rows "
         f"(id {first_id}-{last_id}, "
         f"{df['timestamp'].iloc[0]} -> {df['timestamp'].iloc[-1]}): "
         f"{sum(result['flagged']):,} flagged (>= {result['decision_threshold']:.4f}); "
-        f"cached {transactions:,} transactions, {accounts:,} accounts; output -> {output_path}"
+        f"cached {transactions:,} transactions, {accounts:,} accounts; "
+        f"graphs: {graphs.created:,} new, {graphs.grown:,} grown, {graphs.merged:,} merged; "
+        f"output -> {output_path}"
     )
+
+
+def sync_graphs() -> AssignmentSummary:
+    """Assign any cached flagged transactions that have no graph yet. Run at
+    app startup, which is also what backfills data cached before graphs were stored."""
+    with _batch_lock:
+        return assign_new_transactions()
 
 
 def run_once() -> int:
@@ -125,16 +136,18 @@ def reset_checkpoint() -> int | None:
 
 def clear_cache(reset: bool = False) -> dict:
     """Empty the cache DB, optionally resetting the checkpoint in the same step.
+    This includes the stored graphs, along with their statuses and notes.
 
     Waits for a batch in progress to finish first, so a half-written batch
     can't survive the clear.
     """
     with _batch_lock:
-        accounts, transactions = clear_cache_db()
+        accounts, transactions, graphs = clear_cache_db()
         previous_last_id = _delete_checkpoint() if reset else None
     return {
         "accountsDeleted": accounts,
         "transactionsDeleted": transactions,
+        "graphsDeleted": graphs,
         "checkpointReset": reset,
         "previousLastId": previous_last_id,
     }

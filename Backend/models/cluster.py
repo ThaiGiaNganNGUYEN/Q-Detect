@@ -1,33 +1,56 @@
 """
-Cluster model -- a connected group of accounts (a candidate mule network),
-with the transactions that link them.
+API response shapes for a cluster -- a connected group of accounts (a
+candidate mule network), with the transactions that link them.
 
-Not a DB table (table=False, the SQLModel default): a cluster isn't stored
-directly, it's *computed* on demand from connected components in the graph.
-If you later want to persist "known ring #4, reviewed by an analyst", that
-would be a separate, real table (e.g. FlaggedCluster) -- keep that distinct
-from this ad-hoc, recomputed-every-request response shape.
+Not DB tables (table=False, the SQLModel default): the stored data lives in
+models/mule_graph.py, and these are what the API sends for it.
 """
 
 from __future__ import annotations
 
-from typing import List
+from datetime import datetime
+from typing import List, Literal, Optional
 
 from sqlmodel import SQLModel
 
 from .transaction import TransactionRead
 
+GraphStatus = Literal["Pending", "Safe", "Fraud"]
+
 
 class Cluster(SQLModel):
+    # The graph's stable number -- the frontend shows it as "Graph {clusterId}".
     clusterId: int
     numAccounts: int
     numTransactions: int
-    # 0-100: average fraudRiskScore of this cluster's transactions -- see
-    # cluster_service._build_cluster() for how it's derived.
+    # 0-100: average fraudRiskScore of this cluster's transactions.
     riskScore: int = 0
+    status: GraphStatus = "Pending"
+    # New flagged transactions arrived after the analyst's decision.
+    hasNewActivity: bool = False
     transactions: List[TransactionRead] = []
 
 
 class ClusterListResponse(SQLModel):
     totalClusters: int
     clusters: List[Cluster] = []
+
+
+class GraphStatusRequest(SQLModel):
+    status: GraphStatus
+
+
+class GraphStatusResponse(SQLModel):
+    clusterId: int
+    status: GraphStatus
+    hasNewActivity: bool
+
+
+class GraphNoteRequest(SQLModel):
+    note: str
+
+
+class GraphNoteResponse(SQLModel):
+    clusterId: int
+    note: str
+    updatedAt: Optional[datetime] = None
