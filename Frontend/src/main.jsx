@@ -22,4 +22,9 @@ async function bootstrap() {
     );
 }
 
-bootstrap();
+// Silent token renewal loads this page in a hidden iframe. Booting the app
+// there navigates away and strips the hash, so the parent times out
+// (MSAL timed_out) and the dashboard falls back to sample graphs.
+if (window.self === window.top) {
+    bootstrap();
+}

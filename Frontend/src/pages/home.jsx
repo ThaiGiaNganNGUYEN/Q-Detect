@@ -318,6 +318,9 @@ export default function Home() {
 				if (cancelled) {
 					return;
 				}
+				if (!response) {
+					throw new Error("The backend returned an empty response.");
+				}
 				const { clusters } = adaptClustersResponse(toRawClusterList(response));
 				if (clusters.length === 0) {
 					return;
@@ -623,7 +626,15 @@ export default function Home() {
 
 					<section className="card overflow-hidden">
 						<div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-5 py-4 dark:border-ink-700">
-							<h2 className="text-base font-bold">Transaction details</h2>
+							<div>
+								<h2 className="text-base font-bold">Transaction details</h2>
+								{selectedGraph.num_transactions > selectedGraph.transactions.length ? (
+									<p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+										Showing {selectedGraph.transactions.length.toLocaleString()} of{" "}
+										{selectedGraph.num_transactions.toLocaleString()} highest-risk transactions
+									</p>
+								) : null}
+							</div>
 							<button
 								type="button"
 								className="btn-primary px-3 py-1.5"

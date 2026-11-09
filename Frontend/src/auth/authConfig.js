@@ -20,6 +20,10 @@ export const msalConfig = {
         storeAuthStateInCookie: false, // Set this to "true" if you are having issues on IE11 or Edge
     },
     system: {
+        // The hidden renewal frame has to come back from Entra. The library
+        // default is short enough that a slow response becomes timed_out.
+        iframeHashTimeout: 15000,
+        loadFrameTimeout: 15000,
         loggerOptions: {
             loggerCallback: (level, message, containsPii) => {
                 if (containsPii) {

@@ -36,13 +36,24 @@ def _active_graph(session: Session, cluster_id: int, lock: bool = False) -> Mule
     return graph if graph is not None and graph.mergedInto is None else None
 
 
-def _graph_transactions(session: Session, graph_id: int | None = None) -> list[Transaction]:
+# A graph can hold more than a million flagged transactions. The browser
+# draws and lists this many of the highest-scoring ones; numTransactions on
+# the graph stays the real total.
+PREVIEW_TRANSACTIONS = 250
+
+
+def _graph_transactions(
+    session: Session, graph_id: int | None = None, limit: int | None = PREVIEW_TRANSACTIONS
+) -> list[Transaction]:
     query = select(Transaction).join(
         MuleGraphTransaction, MuleGraphTransaction.transactionId == Transaction.id
     )
     if graph_id is not None:
         query = query.where(MuleGraphTransaction.graphId == graph_id)
-    return session.exec(query.order_by(Transaction.id)).all()
+    query = query.order_by(Transaction.fraudRiskScore.desc(), Transaction.id)
+    if limit is not None:
+        query = query.limit(limit)
+    return session.exec(query).all()
 
 
 # ============================================================
@@ -105,14 +116,17 @@ def compute_graph_for_cluster(cluster_id: int) -> GraphResponse | None:
 # ============================================================
 def _build_cluster(session: Session, graph: MuleGraph) -> Cluster:
     transactions = _graph_transactions(session, graph.id)
-    accounts = {
-        acc.accountId: acc
-        for acc in session.exec(
-            select(Account)
-            .join(MuleGraphAccount, MuleGraphAccount.accountId == Account.accountId)
-            .where(MuleGraphAccount.graphId == graph.id)
-        ).all()
-    }
+    account_ids = {tx.senderAcc for tx in transactions} | {tx.receiverAcc for tx in transactions}
+    stored = {}
+    if account_ids:
+        stored = {
+            acc.accountId: acc
+            for acc in session.exec(select(Account).where(Account.accountId.in_(account_ids))).all()
+        }
+
+    def account_for(account_id: str) -> Account:
+        return stored.get(account_id) or Account.from_id(account_id)
+
     return Cluster(
         clusterId=graph.id,
         numAccounts=graph.numAccounts,
@@ -121,7 +135,7 @@ def _build_cluster(session: Session, graph: MuleGraph) -> Cluster:
         status=graph.status,
         hasNewActivity=graph.hasNewActivity,
         transactions=[
-            TransactionRead.from_transaction(tx, accounts[tx.senderAcc], accounts[tx.receiverAcc])
+            TransactionRead.from_transaction(tx, account_for(tx.senderAcc), account_for(tx.receiverAcc))
             for tx in transactions
         ],
     )

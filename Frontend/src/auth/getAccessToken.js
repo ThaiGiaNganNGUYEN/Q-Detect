@@ -43,13 +43,15 @@ async function acquireApiToken() {
   const request = { ...apiTokenRequest, account };
 
   try {
-    const response = await msalInstance.acquireTokenSilent(request);
+    const response = await acquireSilent(request);
     sessionStorage.removeItem(API_TOKEN_REDIRECT_KEY);
     sessionStorage.removeItem(API_TOKEN_ERROR_KEY);
     return response.accessToken;
   } catch (error) {
-    if (error instanceof InteractionRequiredAuthError) {
-      rememberMsalError(error);
+    if (needsInteraction(error)) {
+      if (error instanceof InteractionRequiredAuthError) {
+        rememberMsalError(error);
+      }
       return redirectForApiToken(request);
     }
     if (error?.errorCode === "interaction_in_progress") {
@@ -57,6 +59,26 @@ async function acquireApiToken() {
     }
     throw error;
   }
+}
+
+/** Hidden-frame failures. These are not InteractionRequiredAuthError, but the
+ *  token still is not in the cache, so the user has to sign in again. */
+const SILENT_FRAME_ERRORS = new Set([
+  "timed_out",
+  "monitor_window_timeout",
+  "block_iframe_reload",
+  "iframe_closed",
+]);
+
+function needsInteraction(error) {
+  return (
+    error instanceof InteractionRequiredAuthError ||
+    SILENT_FRAME_ERRORS.has(error?.errorCode)
+  );
+}
+
+function acquireSilent(request) {
+  return msalInstance.acquireTokenSilent(request);
 }
 
 function rememberMsalError(error) {
@@ -83,5 +105,7 @@ async function redirectForApiToken(request) {
     if (error?.errorCode === "interaction_in_progress") return null;
     throw error;
   }
-  return null;
+  // The browser is leaving for Entra. Keep this promise pending so the
+  // dashboard does not flash the sample-data error during the redirect.
+  return new Promise(() => {});
 }

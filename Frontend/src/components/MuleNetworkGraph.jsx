@@ -4,6 +4,9 @@ import cashOutIcon from "../assets/cash-out-icon.png";
 import { getErrorMessage } from "../api/client";
 import { getGraphNote, submitGraphNote } from "../api/notes";
 import { exportSvgAsPng, toFileSlug } from "../utils/download";
+import { linkLabelPoint, linkPath } from "./graph/geometry.js";
+import { attachHover, attachNodeDrag } from "./graph/interactions.js";
+import { computeLayout } from "./graph/layout.js";
 
 function ExpandIcon({ className = "h-5 w-5" }) {
 	return (
@@ -57,297 +60,23 @@ function appendUserIcon(selection, { radius = 44, fill = "#0f0b0b", iconFill = "
 		);
 }
 
-function nodeRadius(node, detailed) {
-	if (node.kind === "cashout") {
-		return detailed ? 42 : 38;
-	}
-	return detailed ? 48 : 44;
-}
 
-function computeLayout(nodes, links, width, height, detailed) {
-	const hasFixed = nodes.every((node) => typeof node.fx === "number" && typeof node.fy === "number");
-	if (hasFixed) {
-		const nodeById = new Map(
-			nodes.map((node) => [
-				node.id,
-				{
-					...node,
-					x: node.fx * width,
-					y: node.fy * height,
-					r: nodeRadius(node, detailed),
-				},
-			]),
-		);
-		const resolvedLinks = links
-			.map((link) => {
-				const sourceId = typeof link.source === "object" ? link.source.id : link.source;
-				const targetId = typeof link.target === "object" ? link.target.id : link.target;
-				const source = nodeById.get(sourceId);
-				const target = nodeById.get(targetId);
-				if (!source || !target) {
-					return null;
-				}
-				return { ...link, source, target };
-			})
-			.filter(Boolean);
-		// Fixed layouts use hand-picked proportions -- no dynamic spacing needed.
-		return { nodes: [...nodeById.values()], links: resolvedLinks, height };
-	}
-	return computeLayeredLayout(nodes, links, width, height, detailed);
-}
 
-function computeLayeredLayout(nodes, links, width, height, detailed) {
-	const nodeById = new Map(nodes.map((node) => [node.id, { ...node }]));
-	const accounts = nodes.filter((node) => node.kind === "account").map((node) => node.id);
-	const accountSet = new Set(accounts);
-	const outgoing = new Map(accounts.map((id) => [id, []]));
-	const incoming = new Map(accounts.map((id) => [id, []]));
 
-	for (const link of links) {
-		if (link.isSelfPayment) {
-			continue;
-		}
-		const sourceId = typeof link.source === "object" ? link.source.id : link.source;
-		const targetId = typeof link.target === "object" ? link.target.id : link.target;
-		if (!accountSet.has(sourceId) || !accountSet.has(targetId)) {
-			continue;
-		}
-		outgoing.get(sourceId).push(targetId);
-		incoming.get(targetId).push(sourceId);
-	}
 
-	const layer = new Map();
-	const roots = accounts.filter((id) => (incoming.get(id) || []).length === 0);
-	const startNodes = roots.length > 0 ? roots : [accounts[0]].filter(Boolean);
-	for (const id of startNodes) {
-		layer.set(id, 0);
-	}
 
-	const queue = [...startNodes];
-	while (queue.length > 0) {
-		const current = queue.shift();
-		const currentLayer = layer.get(current) ?? 0;
-		for (const next of outgoing.get(current) || []) {
-			const proposed = currentLayer + 1;
-			if (!layer.has(next) || proposed > layer.get(next)) {
-				layer.set(next, proposed);
-				queue.push(next);
-			}
-		}
-	}
 
-	for (const id of accounts) {
-		if (!layer.has(id)) {
-			const preds = incoming.get(id) || [];
-			const predLayers = preds.map((pred) => layer.get(pred)).filter((value) => value != null);
-			layer.set(id, predLayers.length > 0 ? Math.max(...predLayers) + 1 : 0);
-		}
-	}
 
-	const maxLayer = Math.max(0, ...[...layer.values()]);
-	const columns = Array.from({ length: maxLayer + 1 }, () => []);
-	for (const id of accounts) {
-		columns[layer.get(id)].push(id);
-	}
-	for (const column of columns) {
-		column.sort((a, b) => {
-			const nameA = nodeById.get(a)?.label ?? nodeById.get(a)?.lastName ?? a;
-			const nameB = nodeById.get(b)?.label ?? nodeById.get(b)?.lastName ?? b;
-			return String(nameA).localeCompare(String(nameB)) || a.localeCompare(b);
-		});
-	}
 
-	const marginX = detailed ? 140 : 100;
-	const marginY = detailed ? 120 : 90;
-	const usableWidth = Math.max(180, width - marginX * 2);
 
-	// Minimum center-to-center gap between two account nodes stacked in the
-	// same column, so a cluster with many accounts in one layer doesn't
-	// compress them into an overlapping pile -- the canvas grows taller
-	// instead, and the existing zoom/pan controls handle showing all of it.
-	const accountDiameter = nodeRadius({ kind: "account" }, detailed) * 2;
-	const minRowSpacing = accountDiameter + (detailed ? 36 : 24);
-	const largestColumnSize = Math.max(1, ...columns.map((column) => column.length));
-	const requiredHeight = (largestColumnSize - 1) * minRowSpacing;
 
-	const usableHeight = Math.max(180, height - marginY * 2, requiredHeight);
-	const totalHeight = usableHeight + marginY * 2;
-	const columnGap = maxLayer === 0 ? 0 : usableWidth / maxLayer;
 
-	columns.forEach((column, columnIndex) => {
-		const x = marginX + columnIndex * columnGap;
-		const count = column.length;
-		const spread = count <= 2 ? usableHeight * 0.55 : usableHeight;
-		const top = marginY + (usableHeight - spread) / 2;
-		column.forEach((id, rowIndex) => {
-			const y = count === 1 ? marginY + usableHeight / 2 : top + (rowIndex / (count - 1)) * spread;
-			const node = nodeById.get(id);
-			node.x = x;
-			node.y = y;
-			node.r = nodeRadius(node, detailed);
-		});
-	});
 
-	const cashOutOffsetX = detailed ? 170 : 130;
-	const cashOutOffsets = new Map();
-	for (const link of links) {
-		if (!link.isSelfPayment) {
-			continue;
-		}
-		const sourceId = typeof link.source === "object" ? link.source.id : link.source;
-		const targetId = typeof link.target === "object" ? link.target.id : link.target;
-		const source = nodeById.get(sourceId);
-		const target = nodeById.get(targetId);
-		if (!source || !target) {
-			continue;
-		}
-		const stackIndex = cashOutOffsets.get(sourceId) ?? 0;
-		cashOutOffsets.set(sourceId, stackIndex + 1);
-		target.x = source.x + cashOutOffsetX;
-		target.y = source.y + stackIndex * (detailed ? 96 : 72);
-		target.r = nodeRadius(target, detailed);
-	}
 
-	const positioned = [...nodeById.values()].filter((node) => node.x != null && node.y != null);
-	const resolvedLinks = links
-		.map((link) => {
-			const sourceId = typeof link.source === "object" ? link.source.id : link.source;
-			const targetId = typeof link.target === "object" ? link.target.id : link.target;
-			const source = nodeById.get(sourceId);
-			const target = nodeById.get(targetId);
-			if (!source || !target) {
-				return null;
-			}
-			return { ...link, source, target };
-		})
-		.filter(Boolean);
 
-	return { nodes: positioned, links: resolvedLinks, height: totalHeight };
-}
 
-function edgePoint(node, side) {
-	const r = (node.r ?? 44) + 2;
-	switch (side) {
-		case "left":
-			return { x: node.x - r, y: node.y };
-		case "right":
-			return { x: node.x + r, y: node.y };
-		case "top":
-			return { x: node.x, y: node.y - r };
-		case "bottom":
-			return { x: node.x, y: node.y + r };
-		default:
-			return { x: node.x, y: node.y };
-	}
-}
 
-function routePoints(d) {
-	const route = d.route;
-	const s = d.source;
-	const t = d.target;
 
-	if (route === "horizontal" || (!route && Math.abs(s.y - t.y) < 12)) {
-		const start = edgePoint(s, s.x <= t.x ? "right" : "left");
-		const end = edgePoint(t, s.x <= t.x ? "left" : "right");
-		return [start, end];
-	}
-
-	if (route === "vertical-up" || route === "vertical-down" || (!route && Math.abs(s.x - t.x) < 12)) {
-		const goingDown = t.y > s.y;
-		const start = edgePoint(s, goingDown ? "bottom" : "top");
-		const end = edgePoint(t, goingDown ? "top" : "bottom");
-		return [start, end];
-	}
-
-	if (route === "down-then-right") {
-		const start = edgePoint(s, "bottom");
-		const end = edgePoint(t, "left");
-		const midY = Math.max(start.y, end.y) + 28;
-		return [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end];
-	}
-
-	if (route === "up-then-right") {
-		const start = edgePoint(s, "top");
-		const end = edgePoint(t, "left");
-		return [start, { x: start.x, y: end.y }, end];
-	}
-
-	if (route === "step-up-right") {
-		const start = edgePoint(s, "right");
-		const end = edgePoint(t, "left");
-		const midX = (start.x + end.x) / 2;
-		return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end];
-	}
-
-	if (route === "around-left") {
-		const start = edgePoint(s, "left");
-		const end = edgePoint(t, "bottom");
-		const leftX = Math.min(start.x, end.x) - 70;
-		const bottomY = Math.max(start.y, end.y) + 70;
-		return [start, { x: leftX, y: start.y }, { x: leftX, y: bottomY }, { x: end.x, y: bottomY }, end];
-	}
-
-	if (route === "cashout" || d.isSelfPayment) {
-		const start = edgePoint(s, t.x >= s.x ? "right" : "left");
-		const end = edgePoint(t, t.x >= s.x ? "left" : "right");
-		if (Math.abs(start.y - end.y) < 10) {
-			return [start, end];
-		}
-		const midX = (start.x + end.x) / 2;
-		return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end];
-	}
-
-	const start = edgePoint(s, s.x <= t.x ? "right" : "left");
-	const end = edgePoint(t, s.x <= t.x ? "left" : "right");
-	const midX = (start.x + end.x) / 2;
-	return [start, { x: midX, y: start.y }, { x: midX, y: end.y }, end];
-}
-
-function linkPath(d) {
-	const points = routePoints(d);
-	if (points.length === 2) {
-		return `M${points[0].x},${points[0].y} L${points[1].x},${points[1].y}`;
-	}
-
-	const corner = 18;
-	let path = `M${points[0].x},${points[0].y}`;
-	for (let i = 1; i < points.length - 1; i += 1) {
-		const prev = points[i - 1];
-		const curr = points[i];
-		const next = points[i + 1];
-		const inDx = curr.x - prev.x;
-		const inDy = curr.y - prev.y;
-		const outDx = next.x - curr.x;
-		const outDy = next.y - curr.y;
-		const inLen = Math.hypot(inDx, inDy) || 1;
-		const outLen = Math.hypot(outDx, outDy) || 1;
-		const r = Math.min(corner, inLen / 2 - 1, outLen / 2 - 1);
-		if (r < 2) {
-			path += ` L${curr.x},${curr.y}`;
-			continue;
-		}
-		const ix = curr.x - (inDx / inLen) * r;
-		const iy = curr.y - (inDy / inLen) * r;
-		const ox = curr.x + (outDx / outLen) * r;
-		const oy = curr.y + (outDy / outLen) * r;
-		path += ` L${ix},${iy} Q${curr.x},${curr.y} ${ox},${oy}`;
-	}
-	const last = points[points.length - 1];
-	path += ` L${last.x},${last.y}`;
-	return path;
-}
-
-function linkLabelPoint(d) {
-	const points = routePoints(d);
-	if (points.length >= 3) {
-		const mid = points[Math.floor((points.length - 1) / 2)];
-		return { x: mid.x, y: mid.y };
-	}
-	return {
-		x: (points[0].x + points[1].x) / 2,
-		y: (points[0].y + points[1].y) / 2,
-	};
-}
 
 function sameId(a, b) {
 	if (a == null || b == null) {
@@ -483,6 +212,21 @@ function NodeAccountPopup({ node, transactionCount, x, y, onClose, isDark }) {
 	);
 }
 
+function viewFit(layoutWidth, layoutHeight, viewWidth, viewHeight, detailed, nodeCount = 0) {
+	const insets = detailed
+		? { top: 20, right: 68, bottom: 68, left: 20 }
+		: { top: 52, right: 24, bottom: 60, left: 20 };
+	const availW = Math.max(48, viewWidth - insets.left - insets.right);
+	const availH = Math.max(48, viewHeight - insets.top - insets.bottom);
+	const scale = Math.min(availW / Math.max(layoutWidth, 1), availH / Math.max(layoutHeight, 1));
+	const cap = detailed ? 1.15 : 1.45;
+	const floor = nodeCount > 120 ? (detailed ? 0.48 : 0.62) : 0;
+	const k = Math.min(Math.max(scale, floor), cap);
+	return d3.zoomIdentity
+		.translate(insets.left + (availW - layoutWidth * k) / 2, insets.top + (availH - layoutHeight * k) / 2)
+		.scale(k);
+}
+
 function renderStaticGraph({
 	container,
 	graphId,
@@ -528,7 +272,7 @@ function renderStaticGraph({
 		.attr("width", "100%")
 		.attr("height", "100%")
 		.attr("viewBox", `0 0 ${width} ${height}`)
-		.attr("role", "img")
+		.attr("role", "application")
 		.attr("aria-label", `${detailed ? "Detailed" : "Simplified"} mule network ${graphId}`)
 		.style("cursor", "grab");
 
@@ -570,7 +314,7 @@ function renderStaticGraph({
 		.join("path")
 		.attr("class", "graph-link")
 		.attr("stroke", linkStroke)
-		.attr("stroke-width", 2.2)
+		.attr("stroke-width", layout.natural ? 1.4 : 2.2)
 		.attr("stroke-opacity", 0.95)
 		.attr("stroke-linecap", "round")
 		.attr("stroke-linejoin", "round")
@@ -598,7 +342,7 @@ function renderStaticGraph({
 		? viewport
 				.append("g")
 				.selectAll("g")
-				.data(layout.links)
+				.data(layout.links.filter((link) => link.labelAt))
 				.join("g")
 				.attr("pointer-events", "none")
 				.attr("transform", (d) => {
@@ -641,14 +385,26 @@ function renderStaticGraph({
 		.data(layout.nodes)
 		.join("g")
 		.attr("class", "graph-node node-hit")
+		.attr("role", "button")
+		.attr("aria-label", (d) => d.account_number || d.label || String(d.id))
 		.attr("transform", (d) => `translate(${d.x},${d.y})`)
-		.style("cursor", graphInteractive ? "pointer" : "inherit");
+		.style("cursor", "grab");
 
 	node.each(function (d) {
 		const g = d3.select(this);
+		if (d.hub) {
+			g.append("circle")
+				.attr("r", (d.r ?? 20) + 7)
+				.attr("fill", highlightStroke)
+				.attr("fill-opacity", isDark ? 0.16 : 0.12)
+				.attr("stroke", highlightStroke)
+				.attr("stroke-opacity", 0.85)
+				.attr("stroke-width", 2)
+				.attr("pointer-events", "none");
+		}
 		g.append("circle")
 			.attr("class", "node-highlight-ring")
-			.attr("r", (d.r ?? 44) + 7)
+			.attr("r", (d.r ?? 44) + (d.hub ? 12 : 7))
 			.attr("fill", "none")
 			.attr("stroke", highlightStroke)
 			.attr("stroke-width", 3.5)
@@ -709,14 +465,14 @@ function renderStaticGraph({
 						? `${d.bank}/${d.account_number}`
 						: (d.account_number ?? d.id),
 				)
-				.attr("x", 0)
-				.attr("y", -(d.r ?? 48) - 12)
-				.attr("text-anchor", "middle")
+				.attr("x", d.labelDx ?? 0)
+				.attr("y", d.labelDy ?? -(d.r ?? 48) - 12)
+				.attr("text-anchor", d.labelAnchor || "middle")
 				.attr("fill", labelFill)
 				.attr("stroke", bgFill)
 				.attr("stroke-width", 4)
 				.attr("paint-order", "stroke")
-				.attr("font-size", "15px")
+				.attr("font-size", d.fontSize || "15px")
 				.attr("font-weight", "600")
 				.attr("font-family", "system-ui, sans-serif")
 				.attr("pointer-events", "none");
@@ -769,7 +525,9 @@ function renderStaticGraph({
 		return { txIds, nodeIds, focusNodeId: String(nodeId) };
 	};
 
+	let currentSelection = selection;
 	const applyHighlight = (nextSelection) => {
+		currentSelection = nextSelection;
 		const highlight =
 			nextSelection?.type === "node"
 				? resolveNodeHighlight(nextSelection.id)
@@ -777,7 +535,7 @@ function renderStaticGraph({
 		const txHighlighted = (d) => Boolean(highlight?.txIds?.has(String(linkTxId(d))));
 		link
 			.attr("stroke", (d) => (txHighlighted(d) ? highlightStroke : linkStroke))
-			.attr("stroke-width", (d) => (txHighlighted(d) ? 4 : 2.2))
+			.attr("stroke-width", (d) => (txHighlighted(d) ? 3.2 : layout.natural ? 1.4 : 2.2))
 			.attr("stroke-opacity", (d) => {
 				if (!highlight) {
 					return 0.95;
@@ -796,9 +554,39 @@ function renderStaticGraph({
 		highlightApiRef.current = { apply: applyHighlight };
 	}
 
+	let userAdjusted = false;
+	let userDragged = false;
+
+	attachNodeDrag({
+		node,
+		link,
+		linkHit,
+		linkLabel,
+		links: layout.links,
+		nodes: layout.nodes,
+		onDrag: () => {
+			userDragged = true;
+		},
+	});
+	attachHover({
+		node,
+		link,
+		links: layout.links,
+		applyHighlight,
+		getSelection: () => currentSelection,
+	});
+
+	const applyPresentation = (viewWidth, viewHeight) => {
+		container.style.overflow = "hidden";
+		svg.attr("width", "100%").attr("height", "100%").attr("viewBox", `0 0 ${viewWidth} ${viewHeight}`);
+		if (layout.natural) {
+			svg.call(zoom.transform, viewFit(layout.width, layout.height, viewWidth, viewHeight, detailed, layout.nodes.length));
+		}
+	};
+
 	const zoom = d3
 		.zoom()
-		.scaleExtent([0.45, 3.5])
+		.scaleExtent([0.02, 6])
 		.filter((event) => {
 			if (event.type === "wheel") {
 				return true;
@@ -806,14 +594,11 @@ function renderStaticGraph({
 			if (event.button) {
 				return false;
 			}
-			if (!graphInteractive) {
-				return true;
-			}
 			const target = event.target;
-			if (target.classList?.contains("edge-hit")) {
+			if (typeof target.closest === "function" && target.closest(".node-hit")) {
 				return false;
 			}
-			if (typeof target.closest === "function" && target.closest(".node-hit")) {
+			if (graphInteractive && target.classList?.contains("edge-hit")) {
 				return false;
 			}
 			return true;
@@ -826,13 +611,20 @@ function renderStaticGraph({
 		})
 		.on("zoom", (event) => {
 			viewport.attr("transform", event.transform);
+			if (event.sourceEvent) {
+				userAdjusted = true;
+			}
 		});
 
 	svg.call(zoom);
 	svg.on("dblclick.zoom", null);
+	applyPresentation(width, height);
 
 	if (graphInteractive) {
 		linkHit.on("click", (event, d) => {
+			if (event.defaultPrevented) {
+				return;
+			}
 			event.stopPropagation();
 			const txId = linkTxId(d);
 			const nextSelection = { type: "transaction", id: txId };
@@ -844,6 +636,9 @@ function renderStaticGraph({
 		});
 
 		node.on("click", (event, d) => {
+			if (event.defaultPrevented) {
+				return;
+			}
 			event.stopPropagation();
 			if (d.kind === "cashout") {
 				return;
@@ -877,8 +672,20 @@ function renderStaticGraph({
 	const resizeObserver = new ResizeObserver(() => {
 		const nextWidth = container.clientWidth || width;
 		const nextHeight = container.clientHeight || height;
-		const nextLayout = computeLayout(visibleNodes, visibleLinks, nextWidth, nextHeight, detailed);
+		if (nextWidth < 2 || nextHeight < 2) {
+			return;
+		}
+		if (layout.natural) {
+			if (!userAdjusted) {
+				applyPresentation(nextWidth, nextHeight);
+			}
+			return;
+		}
 		svg.attr("viewBox", `0 0 ${nextWidth} ${nextHeight}`);
+		if (userDragged) {
+			return;
+		}
+		const nextLayout = computeLayout(visibleNodes, visibleLinks, nextWidth, nextHeight, detailed);
 		const nextById = new Map(nextLayout.nodes.map((item) => [item.id, item]));
 		layout.nodes.forEach((item) => {
 			const next = nextById.get(item.id);
@@ -1332,6 +1139,11 @@ export default function MuleNetworkGraph({
 								isDark={isDark}
 								detailed
 								className="min-h-0 flex-1"
+								transactions={transactions}
+								selection={selection}
+								onSelect={onSelect}
+								enableEdgePopup
+								enableNodePopup
 							/>
 						</div>
 					</div>
@@ -1340,3 +1152,4 @@ export default function MuleNetworkGraph({
 		</>
 	);
 }
+
