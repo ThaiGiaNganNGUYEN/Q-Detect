@@ -1,2 +1,16 @@
 .venv/
 __pycache__/
+Frontend/.env
+Backend/.env
+Backend/dataset/
+Backend/output/
+instructions.txt
+pipeline.md
+production_pipeline.md
+requirements.txt
+todo.md
+node_modules/
+model_details_ver66/
+
+# Training data cache (ML/train_amlgnn.py)
+ML/data/
